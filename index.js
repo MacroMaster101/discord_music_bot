@@ -179,39 +179,14 @@ async function playSong(guildId, song) {
   if (!serverQueue || !song) return;
 
   try {
-    // Use youtube-dl-exec to get stream URL
-    const info = await youtubedl(song.url, {
-      dumpSingleJson: true,
-      noCheckCertificates: true,
-      noWarnings: true,
-      preferFreeFormats: true,
-      addHeader: ['referer:youtube.com', 'user-agent:googlebot'],
-    });
-
-    // Get best audio format
-    const audioFormat = info.formats?.find(f => 
-      f.acodec && f.acodec !== 'none' && !f.vcodec
-    ) || info.formats?.find(f => f.acodec && f.acodec !== 'none');
-    
-    const audioUrl = audioFormat?.url || info.url;
-    if (!audioUrl) {
-      throw new Error('No audio URL found');
-    }
-
-    // Create resource from URL with proper input type
-    const { default: fetch } = await import('node-fetch');
-    const response = await fetch(audioUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      }
+    // Use ytdl-core directly for better compatibility
+    const stream = ytdl(song.url, {
+      filter: 'audioonly',
+      quality: 'highestaudio',
+      highWaterMark: 1 << 25,
     });
     
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-    
-    const resource = createAudioResource(response.body, {
-      inputType: 'arbitrary',
+    const resource = createAudioResource(stream, {
       inlineVolume: true,
     });
     
