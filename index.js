@@ -140,6 +140,10 @@ async function execute(message, serverQueue, args) {
 
       connection.subscribe(queueConstruct.player);
 
+      queueConstruct.player.on('stateChange', (oldState, newState) => {
+        console.log(`Player state: ${oldState.status} -> ${newState.status}`);
+      });
+
       queueConstruct.player.on(AudioPlayerStatus.Idle, async () => {
         console.log('Song finished, checking queue...');
         queueConstruct.songs.shift();
@@ -198,11 +202,12 @@ async function playSong(guildId, song) {
       throw new Error('No audio URL found');
     }
 
-    // Create resource from URL with proper input type
+    // Create resource from URL with proper input type and better buffering
     const { default: fetch } = await import('node-fetch');
     const response = await fetch(audioUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Range': 'bytes=0-',
       }
     });
     
@@ -213,6 +218,9 @@ async function playSong(guildId, song) {
     const resource = createAudioResource(response.body, {
       inputType: 'arbitrary',
       inlineVolume: true,
+      metadata: {
+        title: song.title,
+      },
     });
     
     resource.volume?.setVolume(0.5);
