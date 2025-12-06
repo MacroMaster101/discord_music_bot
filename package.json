@@ -7,7 +7,7 @@
     "start": "node index.js"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": "20.x"
   },
   "dependencies": {
     "@discordjs/opus": "0.9.0",
@@ -20,6 +20,10 @@
     "node-fetch": "2.7.0",
     "sodium-native": "4.0.4",
     "youtube-dl-exec": "2.4.0",
-    "yt-search": "2.11.0"
+    "yt-search": "2.11.0",
+    "undici": "5.28.4"
+  },
+  "overrides": {
+    "undici": "5.28.4"
   }
 }
