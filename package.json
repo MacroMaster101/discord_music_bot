@@ -16,8 +16,9 @@
     "dotenv": "16.3.1",
     "ffmpeg-static": "5.2.0",
     "libsodium-wrappers": "0.7.13",
-    "ytdl-core": "latest",
-    "yt-search": "2.11.0"
+    "ytdl-core": "npm:@distube/ytdl-core@latest",
+    "yt-search": "2.11.0",
+    "undici": "^6.20.1"
   },
   "overrides": {
     "undici": "5.28.4"

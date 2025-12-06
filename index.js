@@ -16,8 +16,17 @@ const {
 
 const ytSearch = require('yt-search');
 const ytdl = require('ytdl-core');
+const { Agent } = require('undici');
 
 const PREFIX = process.env.PREFIX || '!';
+
+// Create agent for ytdl with proper configuration
+const agent = new Agent({
+  pipelining: 0,
+  maxRedirections: 10,
+  keepAliveTimeout: 60000,
+  keepAliveMaxTimeout: 60000,
+});
 
 const client = new Client({
   intents: [
@@ -185,12 +194,7 @@ async function playSong(guildId, song) {
       filter: 'audioonly',
       quality: 'lowestaudio',
       highWaterMark: 1 << 25,
-      requestOptions: {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept-Language': 'en-US,en;q=0.9',
-        },
-      },
+      agent: agent,
     });
     
     stream.on('error', (error) => {
