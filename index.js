@@ -192,13 +192,24 @@ async function playSong(guildId, song) {
     
     const stream = ytdl(song.url, {
       filter: 'audioonly',
-      quality: 'lowestaudio',
+      format: 'mp4',
       highWaterMark: 1 << 25,
       agent: agent,
+      dlChunkSize: 0,
     });
+    
+    let errorOccurred = false;
     
     stream.on('error', (error) => {
       console.error('Stream error:', error.message);
+      if (!errorOccurred) {
+        errorOccurred = true;
+        serverQueue.textChannel.send(`❌ Playback error: ${error.message}`);
+        serverQueue.songs.shift();
+        if (serverQueue.songs.length > 0) {
+          setTimeout(() => playSong(guildId, serverQueue.songs[0]), 2000);
+        }
+      }
     });
     
     const resource = createAudioResource(stream, {
