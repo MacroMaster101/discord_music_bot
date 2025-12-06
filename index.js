@@ -14,9 +14,7 @@ const {
   getVoiceConnection,
 } = require('@discordjs/voice');
 
-const ytdl = require('@distube/ytdl-core');
 const ytSearch = require('yt-search');
-const youtubedl = require('youtube-dl-exec');
 const play = require('play-dl');
 
 const PREFIX = process.env.PREFIX || '!';
@@ -77,13 +75,15 @@ async function execute(message, serverQueue, args) {
 
   try {
     // Check if URL or search
-    if (searchText.startsWith('http')) {
-      const videoInfo = await ytdl.getInfo(searchText);
+    if (searchText.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\//)) {
+      // YouTube URL - validate and get info
+      const info = await play.video_info(searchText);
       song = {
-        title: videoInfo.videoDetails.title,
-        url: videoInfo.videoDetails.video_url,
+        title: info.video_details.title,
+        url: info.video_details.url,
       };
     } else {
+      // Search query
       const searchResult = await ytSearch(searchText);
       const video = searchResult.videos[0];
       if (!video) return message.reply('❌ No results found!');
