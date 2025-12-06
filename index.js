@@ -17,6 +17,7 @@ const {
 const ytdl = require('@distube/ytdl-core');
 const ytSearch = require('yt-search');
 const youtubedl = require('youtube-dl-exec');
+const play = require('play-dl');
 
 const PREFIX = process.env.PREFIX || '!';
 
@@ -190,21 +191,11 @@ async function playSong(guildId, song) {
   try {
     console.log(`🎵 Attempting to play: ${song.url}`);
     
-    // Use ytdl-core with better options
-    const stream = ytdl(song.url, {
-      filter: 'audioonly',
-      quality: 'highestaudio',
-      highWaterMark: 1 << 25,
-      dlChunkSize: 0,
-    });
+    // Use play-dl for better YouTube support
+    const stream = await play.stream(song.url);
     
-    // Add error handling to stream
-    stream.on('error', (error) => {
-      console.error('Stream error:', error);
-      throw error;
-    });
-    
-    const resource = createAudioResource(stream, {
+    const resource = createAudioResource(stream.stream, {
+      inputType: stream.type,
       inlineVolume: true,
     });
     

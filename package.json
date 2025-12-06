@@ -12,7 +12,7 @@
   "dependencies": {
     "@discordjs/opus": "0.9.0",
     "@discordjs/voice": "0.17.0",
-    "@distube/ytdl-core": "4.13.3",
+    "@distube/ytdl-core": "latest",
     "discord.js": "14.14.1",
     "dotenv": "16.3.1",
     "ffmpeg-static": "5.2.0",
@@ -21,7 +21,8 @@
     "sodium-native": "4.0.4",
     "youtube-dl-exec": "2.4.0",
     "yt-search": "2.11.0",
-    "undici": "5.28.4"
+    "undici": "5.28.4",
+    "play-dl": "^1.9.7"
   },
   "overrides": {
     "undici": "5.28.4"
