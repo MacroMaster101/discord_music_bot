@@ -138,7 +138,16 @@ async function execute(message, serverQueue, args) {
         }
       });
 
-      connection.subscribe(queueConstruct.player);
+      const subscription = connection.subscribe(queueConstruct.player);
+      if (!subscription) {
+        console.error('❌ Failed to subscribe player to connection');
+        throw new Error('Could not subscribe player to voice connection');
+      }
+      console.log('✅ Player subscribed to voice connection');
+
+      queueConstruct.player.on('stateChange', (oldState, newState) => {
+        console.log(`Player state: ${oldState.status} -> ${newState.status}`);
+      });
 
       queueConstruct.player.on(AudioPlayerStatus.Idle, async () => {
         console.log('Song finished, checking queue...');
