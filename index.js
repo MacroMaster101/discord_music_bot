@@ -15,7 +15,7 @@ const {
 } = require('@discordjs/voice');
 
 const ytSearch = require('yt-search');
-const play = require('play-dl');
+const ytdl = require('ytdl-core');
 
 const PREFIX = process.env.PREFIX || '!';
 
@@ -74,24 +74,14 @@ async function execute(message, serverQueue, args) {
   const searchText = args.join(' ');
 
   try {
-    // Check if URL or search
-    if (searchText.match(/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\//)) {
-      // YouTube URL - validate and get info
-      const info = await play.video_info(searchText);
-      song = {
-        title: info.video_details.title,
-        url: info.video_details.url,
-      };
-    } else {
-      // Search query
-      const searchResult = await ytSearch(searchText);
-      const video = searchResult.videos[0];
-      if (!video) return message.reply('❌ No results found!');
-      song = {
-        title: video.title,
-        url: video.url,
-      };
-    }
+    // Always use yt-search for better reliability
+    const searchResult = await ytSearch(searchText);
+    const video = searchResult.videos[0];
+    if (!video) return message.reply('❌ No results found!');
+    song = {
+      title: video.title,
+      url: video.url,
+    };
   } catch (err) {
     console.error('Search error:', err);
     return message.reply('❌ Could not find that song!');
@@ -191,23 +181,13 @@ async function playSong(guildId, song) {
   try {
     console.log(`🎵 Attempting to play: ${song.url}`);
     
-    // Use play-dl with retry for rate limiting
-    let stream;
-    let retries = 3;
-    while (retries > 0) {
-      try {
-        stream = await play.stream(song.url, { quality: 2 });
-        break;
-      } catch (error) {
-        retries--;
-        if (retries === 0) throw error;
-        console.log(`⏳ Retrying... (${3 - retries}/3)`);
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
-    }
+    const stream = ytdl(song.url, {
+      filter: 'audioonly',
+      quality: 'lowestaudio',
+      highWaterMark: 1 << 25,
+    });
     
-    const resource = createAudioResource(stream.stream, {
-      inputType: stream.type,
+    const resource = createAudioResource(stream, {
       inlineVolume: true,
     });
     
@@ -217,14 +197,10 @@ async function playSong(guildId, song) {
     console.log(`✅ Successfully started playing: ${song.title}`);
   } catch (err) {
     console.error('❌ Play error details:', err.message || err);
-    if (err.message?.includes('429')) {
-      serverQueue.textChannel.send(`❌ YouTube is rate limiting requests. Please try again in a minute.`);
-    } else {
-      serverQueue.textChannel.send(`❌ Could not play: ${song.title}`);
-    }
+    serverQueue.textChannel.send(`❌ Could not play: ${song.title}`);
     serverQueue.songs.shift();
     if (serverQueue.songs.length > 0) {
-      setTimeout(() => playSong(guildId, serverQueue.songs[0]), 3000);
+      setTimeout(() => playSong(guildId, serverQueue.songs[0]), 2000);
     }
   }
 }
