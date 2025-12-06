@@ -179,11 +179,20 @@ async function playSong(guildId, song) {
   if (!serverQueue || !song) return;
 
   try {
-    // Use ytdl-core directly for better compatibility
+    console.log(`🎵 Attempting to play: ${song.url}`);
+    
+    // Use ytdl-core with better options
     const stream = ytdl(song.url, {
       filter: 'audioonly',
       quality: 'highestaudio',
       highWaterMark: 1 << 25,
+      dlChunkSize: 0,
+    });
+    
+    // Add error handling to stream
+    stream.on('error', (error) => {
+      console.error('Stream error:', error);
+      throw error;
     });
     
     const resource = createAudioResource(stream, {
@@ -192,13 +201,15 @@ async function playSong(guildId, song) {
     
     resource.volume?.setVolume(0.5);
     serverQueue.player.play(resource);
-    serverQueue.textChannel.send(`▶️ Now playing: **${song.title}**`);
-    console.log(`▶️ Playing: ${song.title}`);
+    serverQueue.textChannel.send(`🎶 Now playing: **${song.title}**`);
+    console.log(`✅ Successfully started playing: ${song.title}`);
   } catch (err) {
-    console.error('Play error:', err);
+    console.error('❌ Play error details:', err.message || err);
     serverQueue.textChannel.send(`❌ Could not play: ${song.title}`);
     serverQueue.songs.shift();
-    if (serverQueue.songs.length > 0) await playSong(guildId, serverQueue.songs[0]);
+    if (serverQueue.songs.length > 0) {
+      setTimeout(() => playSong(guildId, serverQueue.songs[0]), 1000);
+    }
   }
 }
 
