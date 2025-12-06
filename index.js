@@ -253,4 +253,4 @@ function showQueue(message, serverQueue) {
   message.reply(`🎵 **Queue:**\n${queueList}`);
 }
 
-client.login(process.env.TOKEN);
+client.login(process.env.TOKEN || process.env.DISCORD_TOKEN || process.env.BOT_TOKEN);
