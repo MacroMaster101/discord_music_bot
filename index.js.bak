@@ -14,11 +14,19 @@ const {
   getVoiceConnection,
 } = require('@discordjs/voice');
 
-const ytdl = require('@distube/ytdl-core');
 const ytSearch = require('yt-search');
-const youtubedl = require('youtube-dl-exec');
+const ytdl = require('ytdl-core');
+const { Agent } = require('undici');
 
 const PREFIX = process.env.PREFIX || '!';
+
+// Create agent for ytdl with proper configuration
+const agent = new Agent({
+  pipelining: 0,
+  maxRedirections: 10,
+  keepAliveTimeout: 60000,
+  keepAliveMaxTimeout: 60000,
+});
 
 const client = new Client({
   intents: [
@@ -75,22 +83,14 @@ async function execute(message, serverQueue, args) {
   const searchText = args.join(' ');
 
   try {
-    // Check if URL or search
-    if (searchText.startsWith('http')) {
-      const videoInfo = await ytdl.getInfo(searchText);
-      song = {
-        title: videoInfo.videoDetails.title,
-        url: videoInfo.videoDetails.video_url,
-      };
-    } else {
-      const searchResult = await ytSearch(searchText);
-      const video = searchResult.videos[0];
-      if (!video) return message.reply('❌ No results found!');
-      song = {
-        title: video.title,
-        url: video.url,
-      };
-    }
+    // Always use yt-search for better reliability
+    const searchResult = await ytSearch(searchText);
+    const video = searchResult.videos[0];
+    if (!video) return message.reply('❌ No results found!');
+    song = {
+      title: video.title,
+      url: video.url,
+    };
   } catch (err) {
     console.error('Search error:', err);
     return message.reply('❌ Could not find that song!');
@@ -138,7 +138,16 @@ async function execute(message, serverQueue, args) {
         }
       });
 
-      connection.subscribe(queueConstruct.player);
+      const subscription = connection.subscribe(queueConstruct.player);
+      if (!subscription) {
+        console.error('❌ Failed to subscribe player to connection');
+        throw new Error('Could not subscribe player to voice connection');
+      }
+      console.log('✅ Player subscribed to voice connection');
+
+      queueConstruct.player.on('stateChange', (oldState, newState) => {
+        console.log(`Player state: ${oldState.status} -> ${newState.status}`);
+      });
 
       queueConstruct.player.on(AudioPlayerStatus.Idle, async () => {
         console.log('Song finished, checking queue...');
@@ -179,51 +188,45 @@ async function playSong(guildId, song) {
   if (!serverQueue || !song) return;
 
   try {
-    // Use youtube-dl-exec to get stream URL
-    const info = await youtubedl(song.url, {
-      dumpSingleJson: true,
-      noCheckCertificates: true,
-      noWarnings: true,
-      preferFreeFormats: true,
-      addHeader: ['referer:youtube.com', 'user-agent:googlebot'],
-    });
-
-    // Get best audio format
-    const audioFormat = info.formats?.find(f => 
-      f.acodec && f.acodec !== 'none' && !f.vcodec
-    ) || info.formats?.find(f => f.acodec && f.acodec !== 'none');
+    console.log(`🎵 Attempting to play: ${song.url}`);
     
-    const audioUrl = audioFormat?.url || info.url;
-    if (!audioUrl) {
-      throw new Error('No audio URL found');
-    }
-
-    // Create resource from URL with proper input type
-    const { default: fetch } = await import('node-fetch');
-    const response = await fetch(audioUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    const stream = ytdl(song.url, {
+      filter: 'audioonly',
+      format: 'mp4',
+      highWaterMark: 1 << 25,
+      agent: agent,
+      dlChunkSize: 0,
+    });
+    
+    let errorOccurred = false;
+    
+    stream.on('error', (error) => {
+      console.error('Stream error:', error.message);
+      if (!errorOccurred) {
+        errorOccurred = true;
+        serverQueue.textChannel.send(`❌ Playback error: ${error.message}`);
+        serverQueue.songs.shift();
+        if (serverQueue.songs.length > 0) {
+          setTimeout(() => playSong(guildId, serverQueue.songs[0]), 2000);
+        }
       }
     });
     
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-    
-    const resource = createAudioResource(response.body, {
-      inputType: 'arbitrary',
+    const resource = createAudioResource(stream, {
       inlineVolume: true,
     });
     
     resource.volume?.setVolume(0.5);
     serverQueue.player.play(resource);
-    serverQueue.textChannel.send(`▶️ Now playing: **${song.title}**`);
-    console.log(`▶️ Playing: ${song.title}`);
+    serverQueue.textChannel.send(`🎶 Now playing: **${song.title}**`);
+    console.log(`✅ Successfully started playing: ${song.title}`);
   } catch (err) {
-    console.error('Play error:', err);
+    console.error('❌ Play error details:', err.message || err);
     serverQueue.textChannel.send(`❌ Could not play: ${song.title}`);
     serverQueue.songs.shift();
-    if (serverQueue.songs.length > 0) await playSong(guildId, serverQueue.songs[0]);
+    if (serverQueue.songs.length > 0) {
+      setTimeout(() => playSong(guildId, serverQueue.songs[0]), 2000);
+    }
   }
 }
 
@@ -253,4 +256,4 @@ function showQueue(message, serverQueue) {
   message.reply(`🎵 **Queue:**\n${queueList}`);
 }
 
-client.login(process.env.TOKEN);
+client.login(process.env.TOKEN || process.env.DISCORD_TOKEN || process.env.BOT_TOKEN);

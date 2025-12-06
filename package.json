@@ -4,27 +4,23 @@
   "description": "J4FN MUSIC - Discord music bot",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "postinstall": "npm list @discordjs/voice"
+    "start": "node index.js"
   },
   "engines": {
     "node": "20.x"
   },
   "dependencies": {
-    "@discordjs/opus": "^0.9.0",
-    "@discordjs/voice": "^0.17.0",
-    "discord.js": "^14.16.0",
-    "dotenv": "^16.3.1",
-    "ffmpeg-static": "^5.2.0",
-    "libsodium-wrappers": "^0.7.13",
-    "ytdl-core": "npm:@distube/ytdl-core@latest",
-    "yt-search": "^2.11.0",
-    "undici": "^6.20.1"
-  },
-  "resolutions": {
-    "@discordjs/voice": "0.17.0"
-  },
-  "overrides": {
-    "undici": "5.28.4"
+    "@discordjs/opus": "^0.10.0",
+    "@discordjs/voice": "^0.19.0",
+    "@distube/ytdl-core": "^4.16.12",
+    "@snazzah/davey": "^0.1.8",
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5",
+    "ffmpeg-static": "^5.3.0",
+    "libsodium-wrappers": "^0.7.15",
+    "node-fetch": "^2.7.0",
+    "tweetnacl": "^1.0.3",
+    "youtube-dl-exec": "^3.0.27",
+    "yt-search": "^2.13.1"
   }
 }
