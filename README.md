@@ -19,16 +19,17 @@ A powerful Discord music bot that plays music from YouTube.
 ## Setup
 
 1. Clone this repository
-2. Install dependencies:
+2. Use Node.js 22.12 or newer
+3. Install dependencies:
    ```bash
-   npm install
+   npm ci
    ```
-3. Create a `.env` file with:
+4. Create a `.env` file with:
    ```
    TOKEN=your_discord_bot_token
    PREFIX=!
    ```
-4. Run the bot:
+5. Run the bot:
    ```bash
    npm start
    ```
@@ -45,13 +46,14 @@ A powerful Discord music bot that plays music from YouTube.
 Just run `npm start` and keep your PC on.
 
 ## Requirements
-- Node.js 18+ 
+- Node.js 22.12+
 - Discord Bot Token
-- FFmpeg (included via ffmpeg-static)
+- FFmpeg (installed in Docker/Nixpacks and available via ffmpeg-static)
 
 ## Tech Stack
 - discord.js v14
 - @discordjs/voice
+- opusscript
 - youtube-dl-exec
 - yt-search
 - ffmpeg-static

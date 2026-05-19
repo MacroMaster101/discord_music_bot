@@ -12,13 +12,19 @@ const {
   AudioPlayerStatus,
   NoSubscriberBehavior,
   getVoiceConnection,
+  StreamType,
 } = require('@discordjs/voice');
 
-const ytdl = require('@distube/ytdl-core');
 const ytSearch = require('yt-search');
 const youtubedl = require('youtube-dl-exec');
 
 const PREFIX = process.env.PREFIX || '!';
+const TOKEN = process.env.TOKEN || process.env.DISCORD_TOKEN || process.env.BOT_TOKEN;
+
+if (!TOKEN) {
+  console.error('Missing Discord bot token. Set TOKEN in your environment.');
+  process.exit(1);
+}
 
 const client = new Client({
   intents: [
@@ -37,7 +43,7 @@ client.once('ready', () => {
 
 client.on('voiceStateUpdate', (oldState, newState) => {
   // Check if bot was disconnected by someone
-  if (oldState.member.id === client.user.id && oldState.channelId && !newState.channelId) {
+  if (oldState.id === client.user?.id && oldState.channelId && !newState.channelId) {
     const serverQueue = queue.get(oldState.guild.id);
     if (serverQueue) {
       console.log('🔴 Bot was disconnected, stopping playback');
@@ -77,10 +83,16 @@ async function execute(message, serverQueue, args) {
   try {
     // Check if URL or search
     if (searchText.startsWith('http')) {
-      const videoInfo = await ytdl.getInfo(searchText);
+      const videoInfo = await youtubedl(searchText, {
+        dumpSingleJson: true,
+        noCheckCertificates: true,
+        noWarnings: true,
+        skipDownload: true,
+      });
+
       song = {
-        title: videoInfo.videoDetails.title,
-        url: videoInfo.videoDetails.video_url,
+        title: videoInfo.title || searchText,
+        url: videoInfo.webpage_url || videoInfo.original_url || searchText,
       };
     } else {
       const searchResult = await ytSearch(searchText);
@@ -216,7 +228,7 @@ async function playSong(guildId, song) {
     }
     
     const resource = createAudioResource(response.body, {
-      inputType: 'arbitrary',
+      inputType: StreamType.Arbitrary,
       inlineVolume: true,
       metadata: {
         title: song.title,
@@ -261,4 +273,4 @@ function showQueue(message, serverQueue) {
   message.reply(`🎵 **Queue:**\n${queueList}`);
 }
 
-client.login(process.env.TOKEN);
+client.login(TOKEN);

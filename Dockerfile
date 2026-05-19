@@ -1,10 +1,10 @@
-FROM node:20-slim
+FROM node:22-slim
 
-# Install Python3 and ffmpeg
+# Install runtime tools for Discord voice playback and yt-dlp.
 RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
+    ca-certificates \
     ffmpeg \
+    python3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -14,7 +14,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm install --production
+RUN npm ci --omit=dev
 
 # Copy application files
 COPY . .
