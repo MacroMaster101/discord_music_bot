@@ -100,14 +100,16 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   if (interaction.customId === 'music_skip') {
-    cleanupCurrentProcess(serverQueue);
-    serverQueue.player.stop();
+    skipQueue(serverQueue);
     return interaction.reply('⏭️ Skipped!');
   }
 
   if (interaction.customId === 'music_stop') {
     stopQueue(interaction.guild.id, serverQueue);
-    return interaction.reply('⏹️ Stopped!');
+    await interaction.update({
+      components: [createMusicControls(null, { disabled: true })],
+    });
+    return interaction.followUp('⏹️ Stopped!');
   }
 
   if (interaction.customId === 'music_queue') {
@@ -119,18 +121,34 @@ client.on('interactionCreate', async (interaction) => {
 
   if (interaction.customId.startsWith('music_next:')) {
     const songId = interaction.customId.split(':')[1];
-    const songIndex = serverQueue.songs.findIndex((song) => song.id === songId);
+    const result = moveSongNext(serverQueue, songId);
 
-    if (songIndex <= 0) {
+    if (!result.song) {
       return interaction.reply({
-        content: '❌ That song is already playing or is no longer in the queue.',
+        content: '❌ That song is no longer in the queue.',
         ephemeral: true,
       });
     }
 
-    const [song] = serverQueue.songs.splice(songIndex, 1);
-    serverQueue.songs.splice(1, 0, song);
-    return interaction.reply(`🔼 Moved next: **${song.title}**`);
+    if (result.status === 'playing') {
+      return interaction.reply({
+        content: '▶️ That song is already playing.',
+        ephemeral: true,
+      });
+    }
+
+    await interaction.update({
+      components: [createMusicControls(songId, { playNextDisabled: true })],
+    });
+
+    if (result.status === 'already_next') {
+      return interaction.followUp({
+        content: `🔼 Already next: **${result.song.title}**`,
+        ephemeral: true,
+      });
+    }
+
+    return interaction.followUp(`🔼 Moved next: **${result.song.title}**`);
   }
 });
 
@@ -319,7 +337,7 @@ async function getSongFromUrl(input) {
   }
 }
 
-function createMusicControls(playNextSongId) {
+function createMusicControls(playNextSongId, options = {}) {
   const buttons = [];
 
   if (playNextSongId) {
@@ -328,6 +346,7 @@ function createMusicControls(playNextSongId) {
         .setCustomId(`music_next:${playNextSongId}`)
         .setLabel('Play Next')
         .setStyle(ButtonStyle.Primary)
+        .setDisabled(options.disabled || options.playNextDisabled || false)
     );
   }
 
@@ -335,18 +354,34 @@ function createMusicControls(playNextSongId) {
     new ButtonBuilder()
       .setCustomId('music_skip')
       .setLabel('Skip')
-      .setStyle(ButtonStyle.Secondary),
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(options.disabled || false),
     new ButtonBuilder()
       .setCustomId('music_queue')
       .setLabel('Queue')
-      .setStyle(ButtonStyle.Secondary),
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(options.disabled || false),
     new ButtonBuilder()
       .setCustomId('music_stop')
       .setLabel('Stop')
       .setStyle(ButtonStyle.Danger)
+      .setDisabled(options.disabled || false)
   );
 
   return new ActionRowBuilder().addComponents(buttons);
+}
+
+function moveSongNext(serverQueue, songId) {
+  const songIndex = serverQueue.songs.findIndex((song) => song.id === songId);
+  if (songIndex === -1) return { status: 'missing', song: null };
+
+  const song = serverQueue.songs[songIndex];
+  if (songIndex === 0) return { status: 'playing', song };
+  if (songIndex === 1) return { status: 'already_next', song };
+
+  serverQueue.songs.splice(songIndex, 1);
+  serverQueue.songs.splice(1, 0, song);
+  return { status: 'moved', song };
 }
 
 async function playSong(guildId, song) {
@@ -464,9 +499,14 @@ function clearIdleDisconnect(serverQueue) {
 
 function skip(message, serverQueue) {
   if (!serverQueue) return message.reply('❌ Nothing is playing!');
+  skipQueue(serverQueue);
+  message.reply('⏭️ Skipped!');
+}
+
+function skipQueue(serverQueue) {
+  clearIdleDisconnect(serverQueue);
   cleanupCurrentProcess(serverQueue);
   serverQueue.player.stop();
-  message.reply('⏭️ Skipped!');
 }
 
 function stop(message, serverQueue) {
