@@ -245,10 +245,6 @@ async function execute(message, serverQueue, args) {
         advanceQueue(message.guild.id, queueConstruct, true);
       });
 
-      await message.reply({
-        content: `🎶 Now playing: **${song.title}**`,
-        components: [createMusicControls()],
-      });
       await playSong(message.guild.id, song);
     } catch (err) {
       console.error('Connection error:', err);
@@ -448,14 +444,31 @@ async function playSong(guildId, song) {
     resource.volume?.setVolume(0.5);
     serverQueue.player.play(resource);
     updatePresence(song.title);
-    serverQueue.textChannel.send(`▶️ Now playing: **${song.title}**`);
+    serverQueue.textChannel.send({
+      content: `▶️ Now playing: **${song.title}**`,
+      components: [createMusicControls()],
+    });
     console.log(`▶️ Playing: ${song.title}`);
+    return true;
   } catch (err) {
-    console.error('Play error:', err.stderr || err.message || err);
+    const reason = getPlayErrorMessage(err);
+    console.error('Play error:', reason);
     cleanupCurrentProcess(serverQueue);
-    serverQueue.textChannel.send(`❌ Could not play: ${song.title}`);
+    serverQueue.textChannel.send(`❌ Could not play: **${song.title}**\nReason: ${reason}`);
     advanceQueue(guildId, serverQueue, true);
+    return false;
   }
+}
+
+function getPlayErrorMessage(err) {
+  const rawMessage = (err?.stderr || err?.message || String(err)).trim();
+  const firstUsefulLine = rawMessage
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line && !line.startsWith('WARNING:'));
+
+  const message = firstUsefulLine || rawMessage || 'Unknown playback error';
+  return message.length > 250 ? `${message.slice(0, 247)}...` : message;
 }
 
 async function getAudioUrl(url) {
