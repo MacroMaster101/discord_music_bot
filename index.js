@@ -3,6 +3,7 @@ const { spawn } = require('child_process');
 
 const {
   ActionRowBuilder,
+  ActivityType,
   ButtonBuilder,
   ButtonStyle,
   Client,
@@ -45,6 +46,7 @@ const queue = new Map();
 
 client.once('ready', () => {
   console.log(`🎵 ${client.user.tag} is online!`);
+  updatePresence();
 });
 
 client.on('voiceStateUpdate', (oldState, newState) => {
@@ -185,6 +187,8 @@ async function execute(message, serverQueue, args) {
       voiceChannel,
       connection: null,
       currentProcess: null,
+      currentSongId: null,
+      advancingSongId: null,
       idleTimeout: null,
       player: createAudioPlayer({
         behaviors: { noSubscriber: NoSubscriberBehavior.Play },
@@ -231,28 +235,13 @@ async function execute(message, serverQueue, args) {
 
       queueConstruct.player.on(AudioPlayerStatus.Idle, async () => {
         console.log('Song finished, checking queue...');
-        cleanupCurrentProcess(queueConstruct);
-        queueConstruct.songs.shift();
-        if (queueConstruct.songs.length > 0) {
-          console.log(`▶️ Next: ${queueConstruct.songs[0].title}`);
-          await playSong(message.guild.id, queueConstruct.songs[0]);
-        } else {
-          console.log('✅ Queue empty, bot will stay in voice channel');
-          queueConstruct.textChannel.send('✅ Queue finished! Disconnecting in 10 seconds unless you add another song.');
-          scheduleIdleDisconnect(message.guild.id, queueConstruct);
-        }
+        advanceQueue(message.guild.id, queueConstruct, false);
       });
 
       queueConstruct.player.on('error', async (error) => {
         console.error('Player error:', error.message);
-        cleanupCurrentProcess(queueConstruct);
         message.channel.send(`❌ Playback error, skipping...`);
-        queueConstruct.songs.shift();
-        if (queueConstruct.songs.length > 0) {
-          setTimeout(() => playSong(message.guild.id, queueConstruct.songs[0]), 1000);
-        } else {
-          scheduleIdleDisconnect(message.guild.id, queueConstruct);
-        }
+        advanceQueue(message.guild.id, queueConstruct, true);
       });
 
       await message.reply({
@@ -391,6 +380,8 @@ async function playSong(guildId, song) {
   try {
     clearIdleDisconnect(serverQueue);
     cleanupCurrentProcess(serverQueue);
+    serverQueue.currentSongId = song.id;
+    serverQueue.advancingSongId = null;
 
     const audioUrlOutput = await youtubedl(song.url, {
       getUrl: true,
@@ -453,19 +444,63 @@ async function playSong(guildId, song) {
     
     resource.volume?.setVolume(0.5);
     serverQueue.player.play(resource);
+    updatePresence(song.title);
     serverQueue.textChannel.send(`▶️ Now playing: **${song.title}**`);
     console.log(`▶️ Playing: ${song.title}`);
   } catch (err) {
     console.error('Play error:', err);
     cleanupCurrentProcess(serverQueue);
     serverQueue.textChannel.send(`❌ Could not play: ${song.title}`);
-    serverQueue.songs.shift();
-    if (serverQueue.songs.length > 0) {
-      await playSong(guildId, serverQueue.songs[0]);
-    } else {
-      scheduleIdleDisconnect(guildId, serverQueue);
-    }
+    advanceQueue(guildId, serverQueue, true);
   }
+}
+
+function advanceQueue(guildId, serverQueue, delayNext) {
+  const songId = serverQueue.currentSongId;
+  if (songId && serverQueue.advancingSongId === songId) return;
+
+  serverQueue.advancingSongId = songId;
+  cleanupCurrentProcess(serverQueue);
+
+  if (serverQueue.songs[0]?.id === songId) {
+    serverQueue.songs.shift();
+  } else {
+    serverQueue.songs.shift();
+  }
+
+  const nextSong = serverQueue.songs[0];
+  if (nextSong) {
+    console.log(`▶️ Next: ${nextSong.title}`);
+    const playNext = () => playSong(guildId, nextSong);
+    if (delayNext) setTimeout(playNext, 1000);
+    else playNext();
+    return;
+  }
+
+  serverQueue.currentSongId = null;
+  serverQueue.advancingSongId = null;
+  console.log('✅ Queue empty, bot will stay in voice channel');
+  updatePresence();
+  serverQueue.textChannel.send('✅ Queue finished! Disconnecting in 10 seconds unless you add another song.');
+  scheduleIdleDisconnect(guildId, serverQueue);
+}
+
+function updatePresence(songTitle) {
+  if (!client.user) return;
+
+  if (!songTitle) {
+    client.user.setPresence({
+      activities: [{ name: `${PREFIX}play`, type: ActivityType.Listening }],
+      status: 'online',
+    });
+    return;
+  }
+
+  const title = songTitle.length > 120 ? `${songTitle.slice(0, 117)}...` : songTitle;
+  client.user.setPresence({
+    activities: [{ name: title, type: ActivityType.Listening }],
+    status: 'online',
+  });
 }
 
 function cleanupCurrentProcess(serverQueue) {
@@ -517,12 +552,15 @@ function stop(message, serverQueue) {
 
 function stopQueue(guildId, serverQueue) {
   serverQueue.songs = [];
+  serverQueue.currentSongId = null;
+  serverQueue.advancingSongId = null;
   clearIdleDisconnect(serverQueue);
   cleanupCurrentProcess(serverQueue);
   serverQueue.player.stop();
   const conn = getVoiceConnection(guildId);
   if (conn) conn.destroy();
   queue.delete(guildId);
+  updatePresence();
 }
 
 function showQueue(message, serverQueue) {
