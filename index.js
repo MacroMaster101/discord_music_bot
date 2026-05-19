@@ -143,14 +143,8 @@ client.on('interactionCreate', async (interaction) => {
       components: [createMusicControls(songId, { playNextDisabled: true })],
     });
 
-    if (result.status === 'already_next') {
-      return interaction.followUp({
-        content: `🔼 Already next: **${result.song.title}**`,
-        ephemeral: true,
-      });
-    }
-
-    return interaction.followUp(`🔼 Moved next: **${result.song.title}**`);
+    skipQueue(serverQueue);
+    return interaction.followUp(`▶️ Starting next: **${result.song.title}**`);
   }
 });
 
@@ -345,7 +339,7 @@ function createMusicControls(playNextSongId, options = {}) {
     buttons.push(
       new ButtonBuilder()
         .setCustomId(`music_next:${playNextSongId}`)
-        .setLabel('Play Next')
+        .setLabel('Play Now')
         .setStyle(ButtonStyle.Primary)
         .setDisabled(options.disabled || options.playNextDisabled || false)
     );
