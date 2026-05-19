@@ -460,9 +460,9 @@ async function playSong(guildId, song) {
     const publicReason = getPublicPlayErrorMessage(technicalReason);
     console.error('Play error:', technicalReason);
     cleanupCurrentProcess(serverQueue);
-    serverQueue.textChannel.send(
-      `⚠️ I couldn't play that track. ${publicReason} Disconnecting if there is nothing else queued.`
-    );
+    if (serverQueue.songs.length > 1) {
+      serverQueue.textChannel.send(`⚠️ I couldn't play that track. ${publicReason} Trying the next song...`);
+    }
     advanceQueue(guildId, serverQueue, true, publicReason);
     return false;
   }
@@ -644,7 +644,7 @@ function scheduleIdleDisconnect(guildId, serverQueue, delayMs = IDLE_DISCONNECT_
 
     console.log('Disconnecting after idle timeout');
     stopQueue(guildId, latestQueue);
-  }, IDLE_DISCONNECT_MS);
+  }, delayMs);
 }
 
 function clearIdleDisconnect(serverQueue) {
