@@ -1,6 +1,9 @@
 require('dotenv').config();
 
 const {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   Client,
   GatewayIntentBits,
 } = require('discord.js');
@@ -20,6 +23,7 @@ const youtubedl = require('youtube-dl-exec');
 
 const PREFIX = process.env.PREFIX || '!';
 const TOKEN = process.env.TOKEN || process.env.DISCORD_TOKEN || process.env.BOT_TOKEN;
+let nextSongId = 1;
 
 if (!TOKEN) {
   console.error('Missing Discord bot token. Set TOKEN in your environment.');
@@ -72,6 +76,61 @@ client.on('messageCreate', async (message) => {
   }
 });
 
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isButton() || !interaction.guild) return;
+
+  const serverQueue = queue.get(interaction.guild.id);
+  const memberVoiceChannel = interaction.member?.voice?.channel;
+
+  if (!serverQueue) {
+    return interaction.reply({
+      content: '❌ Nothing is playing!',
+      ephemeral: true,
+    });
+  }
+
+  if (!memberVoiceChannel || memberVoiceChannel.id !== serverQueue.voiceChannel.id) {
+    return interaction.reply({
+      content: '❌ Join the same voice channel as the bot to use these controls.',
+      ephemeral: true,
+    });
+  }
+
+  if (interaction.customId === 'music_skip') {
+    cleanupCurrentProcess(serverQueue);
+    serverQueue.player.stop();
+    return interaction.reply('⏭️ Skipped!');
+  }
+
+  if (interaction.customId === 'music_stop') {
+    stopQueue(interaction.guild.id, serverQueue);
+    return interaction.reply('⏹️ Stopped!');
+  }
+
+  if (interaction.customId === 'music_queue') {
+    return interaction.reply({
+      content: getQueueText(serverQueue),
+      ephemeral: true,
+    });
+  }
+
+  if (interaction.customId.startsWith('music_next:')) {
+    const songId = interaction.customId.split(':')[1];
+    const songIndex = serverQueue.songs.findIndex((song) => song.id === songId);
+
+    if (songIndex <= 0) {
+      return interaction.reply({
+        content: '❌ That song is already playing or is no longer in the queue.',
+        ephemeral: true,
+      });
+    }
+
+    const [song] = serverQueue.songs.splice(songIndex, 1);
+    serverQueue.songs.splice(1, 0, song);
+    return interaction.reply(`🔼 Moved next: **${song.title}**`);
+  }
+});
+
 async function execute(message, serverQueue, args) {
   const voiceChannel = message.member?.voice?.channel;
   if (!voiceChannel) return message.reply('❌ You need to be in a voice channel!');
@@ -89,6 +148,7 @@ async function execute(message, serverQueue, args) {
       const video = searchResult.videos[0];
       if (!video) return message.reply('❌ No results found!');
       song = {
+        id: createSongId(),
         title: video.title,
         url: video.url,
       };
@@ -170,7 +230,10 @@ async function execute(message, serverQueue, args) {
         }
       });
 
-      await message.reply(`🎶 Now playing: **${song.title}**`);
+      await message.reply({
+        content: `🎶 Now playing: **${song.title}**`,
+        components: [createMusicControls()],
+      });
       await playSong(message.guild.id, song);
     } catch (err) {
       console.error('Connection error:', err);
@@ -179,8 +242,16 @@ async function execute(message, serverQueue, args) {
     }
   } else {
     serverQueue.songs.push(song);
-    return message.reply(`➕ Added to queue: **${song.title}**`);
+    return message.reply({
+      content: `➕ Added to queue: **${song.title}**`,
+      components: [createMusicControls(song.id)],
+    });
   }
+}
+
+function createSongId() {
+  nextSongId += 1;
+  return nextSongId.toString();
 }
 
 function isUrl(input) {
@@ -226,16 +297,48 @@ async function getSongFromUrl(input) {
     });
 
     return {
+      id: createSongId(),
       title: videoInfo.title || url,
       url: videoInfo.webpage_url || videoInfo.original_url || url,
     };
   } catch (err) {
     console.warn(`Metadata lookup failed for ${url}:`, err.message || err);
     return {
+      id: createSongId(),
       title: url,
       url,
     };
   }
+}
+
+function createMusicControls(playNextSongId) {
+  const buttons = [];
+
+  if (playNextSongId) {
+    buttons.push(
+      new ButtonBuilder()
+        .setCustomId(`music_next:${playNextSongId}`)
+        .setLabel('Play Next')
+        .setStyle(ButtonStyle.Primary)
+    );
+  }
+
+  buttons.push(
+    new ButtonBuilder()
+      .setCustomId('music_skip')
+      .setLabel('Skip')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('music_queue')
+      .setLabel('Queue')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('music_stop')
+      .setLabel('Stop')
+      .setStyle(ButtonStyle.Danger)
+  );
+
+  return new ActionRowBuilder().addComponents(buttons);
 }
 
 async function playSong(guildId, song) {
@@ -309,23 +412,31 @@ function skip(message, serverQueue) {
 
 function stop(message, serverQueue) {
   if (!serverQueue) return message.reply('❌ Nothing is playing!');
+  stopQueue(message.guild.id, serverQueue);
+  message.reply('⏹️ Stopped!');
+}
+
+function stopQueue(guildId, serverQueue) {
   serverQueue.songs = [];
   cleanupCurrentProcess(serverQueue);
   serverQueue.player.stop();
-  const conn = getVoiceConnection(message.guild.id);
+  const conn = getVoiceConnection(guildId);
   if (conn) conn.destroy();
-  queue.delete(message.guild.id);
-  message.reply('⏹️ Stopped!');
+  queue.delete(guildId);
 }
 
 function showQueue(message, serverQueue) {
   if (!serverQueue || !serverQueue.songs.length) {
     return message.reply('❌ Queue is empty!');
   }
+  message.reply(getQueueText(serverQueue));
+}
+
+function getQueueText(serverQueue) {
   const queueList = serverQueue.songs
     .map((song, i) => `${i === 0 ? '▶️' : `${i}.`} ${song.title}`)
     .join('\n');
-  message.reply(`🎵 **Queue:**\n${queueList}`);
+  return `🎵 **Queue:**\n${queueList}`;
 }
 
 client.login(TOKEN);
