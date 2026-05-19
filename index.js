@@ -55,10 +55,7 @@ client.on('voiceStateUpdate', (oldState, newState) => {
     const serverQueue = queue.get(oldState.guild.id);
     if (serverQueue) {
       console.log('🔴 Bot was disconnected, stopping playback');
-      serverQueue.songs = [];
-      clearIdleDisconnect(serverQueue);
-      serverQueue.player.stop();
-      queue.delete(oldState.guild.id);
+      teardownQueue(oldState.guild.id, serverQueue, false);
     }
   }
 });
@@ -185,6 +182,7 @@ async function execute(message, serverQueue, args) {
       currentSongId: null,
       advancingSongId: null,
       idleTimeout: null,
+      stopped: false,
       player: createAudioPlayer({
         behaviors: { noSubscriber: NoSubscriberBehavior.Play },
       }),
@@ -229,11 +227,13 @@ async function execute(message, serverQueue, args) {
       });
 
       queueConstruct.player.on(AudioPlayerStatus.Idle, async () => {
+        if (queueConstruct.stopped) return;
         console.log('Song finished, checking queue...');
         advanceQueue(message.guild.id, queueConstruct, false);
       });
 
       queueConstruct.player.on('error', async (error) => {
+        if (queueConstruct.stopped) return;
         console.error('Player error:', error.message);
         message.channel.send(`❌ Playback error, skipping...`);
         advanceQueue(message.guild.id, queueConstruct, true);
@@ -246,6 +246,7 @@ async function execute(message, serverQueue, args) {
       return message.reply('❌ Could not join voice channel! Make sure the bot has proper permissions.');
     }
   } else {
+    serverQueue.stopped = false;
     clearIdleDisconnect(serverQueue);
     serverQueue.songs.push(song);
     return message.reply({
@@ -479,6 +480,8 @@ async function getAudioUrl(url) {
 }
 
 function advanceQueue(guildId, serverQueue, delayNext) {
+  if (serverQueue.stopped || !queue.has(guildId)) return;
+
   const songId = serverQueue.currentSongId;
   if (songId && serverQueue.advancingSongId === songId) return;
 
@@ -574,14 +577,23 @@ function stop(message, serverQueue) {
 }
 
 function stopQueue(guildId, serverQueue) {
+  teardownQueue(guildId, serverQueue, true);
+}
+
+function teardownQueue(guildId, serverQueue, destroyConnection) {
+  serverQueue.stopped = true;
   serverQueue.songs = [];
   serverQueue.currentSongId = null;
   serverQueue.advancingSongId = null;
   clearIdleDisconnect(serverQueue);
   cleanupCurrentProcess(serverQueue);
-  serverQueue.player.stop();
-  const conn = getVoiceConnection(guildId);
-  if (conn) conn.destroy();
+  serverQueue.player.stop(true);
+
+  if (destroyConnection) {
+    const conn = getVoiceConnection(guildId);
+    if (conn) conn.destroy();
+  }
+
   queue.delete(guildId);
   updatePresence();
 }
