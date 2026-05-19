@@ -174,6 +174,7 @@ async function execute(message, serverQueue, args) {
         id: createSongId(),
         title: video.title,
         url: video.url,
+        streamUrl: null,
       };
     }
   } catch (err) {
@@ -315,6 +316,7 @@ async function getSongFromUrl(input) {
       id: createSongId(),
       title: videoInfo.title || url,
       url: videoInfo.webpage_url || videoInfo.original_url || url,
+      streamUrl: getBestAudioUrl(videoInfo),
     };
   } catch (err) {
     console.warn(`Metadata lookup failed for ${url}:`, err.message || err);
@@ -322,8 +324,22 @@ async function getSongFromUrl(input) {
       id: createSongId(),
       title: url,
       url,
+      streamUrl: null,
     };
   }
+}
+
+function getBestAudioUrl(info) {
+  const formats = Array.isArray(info?.formats) ? info.formats : [];
+  const audioFormats = formats
+    .filter((format) => format.url && format.acodec && format.acodec !== 'none' && (!format.vcodec || format.vcodec === 'none'))
+    .sort((a, b) => {
+      const aScore = (a.abr || a.tbr || 0) + (a.ext === 'webm' ? 1000 : 0);
+      const bScore = (b.abr || b.tbr || 0) + (b.ext === 'webm' ? 1000 : 0);
+      return bScore - aScore;
+    });
+
+  return audioFormats[0]?.url || info?.url || null;
 }
 
 function createMusicControls(playNextSongId, options = {}) {
@@ -383,20 +399,7 @@ async function playSong(guildId, song) {
     serverQueue.currentSongId = song.id;
     serverQueue.advancingSongId = null;
 
-    const audioUrlOutput = await youtubedl(song.url, {
-      getUrl: true,
-      format: 'bestaudio[ext=webm]/bestaudio/best',
-      noCheckCertificates: true,
-      noWarnings: true,
-      noPlaylist: true,
-      preferFreeFormats: true,
-      addHeader: ['referer:youtube.com', 'user-agent:googlebot'],
-    });
-
-    const audioUrl = audioUrlOutput
-      .toString()
-      .split(/\r?\n/)
-      .find(Boolean);
+    const audioUrl = song.streamUrl || await getAudioUrl(song.url);
 
     if (!audioUrl) {
       throw new Error('yt-dlp did not return an audio URL');
@@ -448,11 +451,24 @@ async function playSong(guildId, song) {
     serverQueue.textChannel.send(`▶️ Now playing: **${song.title}**`);
     console.log(`▶️ Playing: ${song.title}`);
   } catch (err) {
-    console.error('Play error:', err);
+    console.error('Play error:', err.stderr || err.message || err);
     cleanupCurrentProcess(serverQueue);
     serverQueue.textChannel.send(`❌ Could not play: ${song.title}`);
     advanceQueue(guildId, serverQueue, true);
   }
+}
+
+async function getAudioUrl(url) {
+  const info = await youtubedl(url, {
+    dumpSingleJson: true,
+    noCheckCertificates: true,
+    noWarnings: true,
+    noPlaylist: true,
+    preferFreeFormats: true,
+    addHeader: ['referer:youtube.com', 'user-agent:googlebot'],
+  });
+
+  return getBestAudioUrl(info);
 }
 
 function advanceQueue(guildId, serverQueue, delayNext) {
