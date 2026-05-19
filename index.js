@@ -1,4 +1,5 @@
 require('dotenv').config();
+const { spawn } = require('child_process');
 
 const {
   ActionRowBuilder,
@@ -23,6 +24,7 @@ const youtubedl = require('youtube-dl-exec');
 
 const PREFIX = process.env.PREFIX || '!';
 const TOKEN = process.env.TOKEN || process.env.DISCORD_TOKEN || process.env.BOT_TOKEN;
+const IDLE_DISCONNECT_MS = 10000;
 let nextSongId = 1;
 
 if (!TOKEN) {
@@ -52,6 +54,7 @@ client.on('voiceStateUpdate', (oldState, newState) => {
     if (serverQueue) {
       console.log('🔴 Bot was disconnected, stopping playback');
       serverQueue.songs = [];
+      clearIdleDisconnect(serverQueue);
       serverQueue.player.stop();
       queue.delete(oldState.guild.id);
     }
@@ -164,6 +167,7 @@ async function execute(message, serverQueue, args) {
       voiceChannel,
       connection: null,
       currentProcess: null,
+      idleTimeout: null,
       player: createAudioPlayer({
         behaviors: { noSubscriber: NoSubscriberBehavior.Play },
       }),
@@ -216,7 +220,8 @@ async function execute(message, serverQueue, args) {
           await playSong(message.guild.id, queueConstruct.songs[0]);
         } else {
           console.log('✅ Queue empty, bot will stay in voice channel');
-          queueConstruct.textChannel.send('✅ Queue finished! Add more songs with `!play` or use `!stop` to disconnect.');
+          queueConstruct.textChannel.send('✅ Queue finished! Disconnecting in 10 seconds unless you add another song.');
+          scheduleIdleDisconnect(message.guild.id, queueConstruct);
         }
       });
 
@@ -227,6 +232,8 @@ async function execute(message, serverQueue, args) {
         queueConstruct.songs.shift();
         if (queueConstruct.songs.length > 0) {
           setTimeout(() => playSong(message.guild.id, queueConstruct.songs[0]), 1000);
+        } else {
+          scheduleIdleDisconnect(message.guild.id, queueConstruct);
         }
       });
 
@@ -241,6 +248,7 @@ async function execute(message, serverQueue, args) {
       return message.reply('❌ Could not join voice channel! Make sure the bot has proper permissions.');
     }
   } else {
+    clearIdleDisconnect(serverQueue);
     serverQueue.songs.push(song);
     return message.reply({
       content: `➕ Added to queue: **${song.title}**`,
@@ -346,6 +354,7 @@ async function playSong(guildId, song) {
   if (!serverQueue || !song) return;
 
   try {
+    clearIdleDisconnect(serverQueue);
     cleanupCurrentProcess(serverQueue);
 
     const audioUrlOutput = await youtubedl(song.url, {
@@ -367,8 +376,40 @@ async function playSong(guildId, song) {
       throw new Error('yt-dlp did not return an audio URL');
     }
 
-    const resource = createAudioResource(audioUrl, {
-      inputType: StreamType.Arbitrary,
+    const ffmpeg = spawn('ffmpeg', [
+      '-reconnect', '1',
+      '-reconnect_streamed', '1',
+      '-reconnect_delay_max', '5',
+      '-i', audioUrl,
+      '-analyzeduration', '0',
+      '-loglevel', 'warning',
+      '-f', 's16le',
+      '-ar', '48000',
+      '-ac', '2',
+      'pipe:1',
+    ], {
+      windowsHide: true,
+    });
+
+    serverQueue.currentProcess = ffmpeg;
+
+    let ffmpegError = '';
+    ffmpeg.stderr.on('data', (chunk) => {
+      ffmpegError += chunk.toString();
+    });
+
+    ffmpeg.on('close', (code) => {
+      if (code && code !== 0) {
+        console.error(`FFmpeg exited with code ${code}:`, ffmpegError.trim());
+      }
+    });
+
+    ffmpeg.on('error', (err) => {
+      console.error('Could not start FFmpeg:', err.message || err);
+    });
+
+    const resource = createAudioResource(ffmpeg.stdout, {
+      inputType: StreamType.Raw,
       inlineVolume: true,
       metadata: {
         title: song.title,
@@ -384,7 +425,11 @@ async function playSong(guildId, song) {
     cleanupCurrentProcess(serverQueue);
     serverQueue.textChannel.send(`❌ Could not play: ${song.title}`);
     serverQueue.songs.shift();
-    if (serverQueue.songs.length > 0) await playSong(guildId, serverQueue.songs[0]);
+    if (serverQueue.songs.length > 0) {
+      await playSong(guildId, serverQueue.songs[0]);
+    } else {
+      scheduleIdleDisconnect(guildId, serverQueue);
+    }
   }
 }
 
@@ -394,10 +439,27 @@ function cleanupCurrentProcess(serverQueue) {
   try {
     serverQueue.currentProcess.kill('SIGKILL');
   } catch (err) {
-    console.warn('Could not stop yt-dlp process:', err.message || err);
+    console.warn('Could not stop audio process:', err.message || err);
   } finally {
     serverQueue.currentProcess = null;
   }
+}
+
+function scheduleIdleDisconnect(guildId, serverQueue) {
+  clearIdleDisconnect(serverQueue);
+  serverQueue.idleTimeout = setTimeout(() => {
+    const latestQueue = queue.get(guildId);
+    if (!latestQueue || latestQueue.songs.length > 0) return;
+
+    console.log('Disconnecting after idle timeout');
+    stopQueue(guildId, latestQueue);
+  }, IDLE_DISCONNECT_MS);
+}
+
+function clearIdleDisconnect(serverQueue) {
+  if (!serverQueue?.idleTimeout) return;
+  clearTimeout(serverQueue.idleTimeout);
+  serverQueue.idleTimeout = null;
 }
 
 function skip(message, serverQueue) {
@@ -415,6 +477,7 @@ function stop(message, serverQueue) {
 
 function stopQueue(guildId, serverQueue) {
   serverQueue.songs = [];
+  clearIdleDisconnect(serverQueue);
   cleanupCurrentProcess(serverQueue);
   serverQueue.player.stop();
   const conn = getVoiceConnection(guildId);
