@@ -16,6 +16,11 @@ COPY package*.json ./
 # Install dependencies
 RUN npm ci --omit=dev
 
+# Upgrade bundled yt-dlp to latest nightly for freshest anti-bot patches
+RUN ./node_modules/youtube-dl-exec/bin/yt-dlp -U || \
+    python3 -m pip install --break-system-packages -U yt-dlp 2>/dev/null || \
+    echo "Warning: could not update yt-dlp, using bundled version"
+
 # Copy application files
 COPY . .
 

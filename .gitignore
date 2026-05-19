@@ -4,3 +4,5 @@ node_modules/
 .DS_Store
 *.zip
 *.bak
+cookies.txt
+cookies_base64.txt

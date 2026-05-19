@@ -32,9 +32,18 @@ const IDLE_DISCONNECT_MS = 10000;
 const ERROR_DISCONNECT_MS = 5000;
 const YTDLP_COOKIES_PATH = process.env.YTDLP_COOKIES_PATH || process.env.YTDLP_COOKIES;
 const YTDLP_COOKIES_BASE64 = process.env.YTDLP_COOKIES_BASE64;
+const YTDLP_PO_TOKEN = process.env.YTDLP_PO_TOKEN;
 const VOICE_STATUS_ROUTE = (channelId) => `/channels/${channelId}/voice-status`;
 let nextSongId = 1;
 let tempCookiesPath = null;
+
+// Player client fallback chains — tried in order when YouTube blocks a request
+const PLAYER_CLIENT_CHAINS = [
+  'web_safari,web_embedded,default',
+  'mweb,default',
+  'tv_simply,default,-tv',
+  'web,default',
+];
 
 if (!TOKEN) {
   console.error('Missing Discord bot token. Set TOKEN in your environment.');
@@ -60,20 +69,24 @@ if (tempCookiesPath) {
   console.log(`\u{1F36A} Using cookies file: ${tempCookiesPath}`);
 }
 
-function getYtdlpBaseOptions() {
+function getYtdlpBaseOptions(playerClientOverride) {
+  const playerClient = playerClientOverride || PLAYER_CLIENT_CHAINS[0];
   const opts = {
     noCheckCertificates: true,
     noWarnings: true,
     noPlaylist: true,
     preferFreeFormats: true,
     addHeader: [
-      'referer:youtube.com',
-      'user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      'referer:https://www.youtube.com/',
+      'user-agent:Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Safari/605.1.15',
     ],
-    extractorArgs: 'youtube:player_client=web,default',
+    extractorArgs: `youtube:player_client=${playerClient}`,
   };
   if (tempCookiesPath) {
     opts.cookies = tempCookiesPath;
+  }
+  if (YTDLP_PO_TOKEN) {
+    opts.extractorArgs += `;po_token=web+${YTDLP_PO_TOKEN}`;
   }
   return opts;
 }
@@ -369,28 +382,39 @@ function normalizeMediaUrl(input) {
 async function getSongFromUrl(input) {
   const url = normalizeMediaUrl(input);
 
-  try {
-    const videoInfo = await youtubedl(url, {
-      ...getYtdlpBaseOptions(),
-      dumpSingleJson: true,
-      skipDownload: true,
-    });
+  for (let i = 0; i < PLAYER_CLIENT_CHAINS.length; i++) {
+    try {
+      const videoInfo = await youtubedl(url, {
+        ...getYtdlpBaseOptions(PLAYER_CLIENT_CHAINS[i]),
+        dumpSingleJson: true,
+        skipDownload: true,
+      });
 
-    return {
-      id: createSongId(),
-      title: videoInfo.title || url,
-      url: videoInfo.webpage_url || videoInfo.original_url || url,
-      streamUrl: getBestAudioUrl(videoInfo),
-    };
-  } catch (err) {
-    console.warn(`Metadata lookup failed for ${url}:`, err.message || err);
-    return {
-      id: createSongId(),
-      title: url,
-      url,
-      streamUrl: null,
-    };
+      return {
+        id: createSongId(),
+        title: videoInfo.title || url,
+        url: videoInfo.webpage_url || videoInfo.original_url || url,
+        streamUrl: getBestAudioUrl(videoInfo),
+      };
+    } catch (err) {
+      const errMsg = (err?.stderr || err?.message || '').toLowerCase();
+      const isBlockedError = errMsg.includes('sign in') || errMsg.includes('not a bot') || errMsg.includes('403');
+
+      if (isBlockedError && i < PLAYER_CLIENT_CHAINS.length - 1) {
+        console.warn(`Client chain "${PLAYER_CLIENT_CHAINS[i]}" blocked for ${url}, trying next...`);
+        continue;
+      }
+
+      console.warn(`Metadata lookup failed for ${url}:`, err.message || err);
+    }
   }
+
+  return {
+    id: createSongId(),
+    title: url,
+    url,
+    streamUrl: null,
+  };
 }
 
 function getBestAudioUrl(info) {
@@ -578,12 +602,31 @@ function getPublicPlayErrorMessage(reason) {
 }
 
 async function getAudioUrl(url) {
-  const info = await youtubedl(url, {
-    ...getYtdlpBaseOptions(),
-    dumpSingleJson: true,
-  });
+  for (let i = 0; i < PLAYER_CLIENT_CHAINS.length; i++) {
+    try {
+      const info = await youtubedl(url, {
+        ...getYtdlpBaseOptions(PLAYER_CLIENT_CHAINS[i]),
+        dumpSingleJson: true,
+      });
 
-  return getBestAudioUrl(info);
+      const audioUrl = getBestAudioUrl(info);
+      if (audioUrl) return audioUrl;
+
+      console.warn(`No audio URL from client chain "${PLAYER_CLIENT_CHAINS[i]}" for ${url}`);
+    } catch (err) {
+      const errMsg = (err?.stderr || err?.message || '').toLowerCase();
+      const isBlockedError = errMsg.includes('sign in') || errMsg.includes('not a bot') || errMsg.includes('403');
+
+      if (isBlockedError && i < PLAYER_CLIENT_CHAINS.length - 1) {
+        console.warn(`Audio extraction blocked with "${PLAYER_CLIENT_CHAINS[i]}", trying next client chain...`);
+        continue;
+      }
+
+      throw err;
+    }
+  }
+
+  return null;
 }
 
 function advanceQueue(guildId, serverQueue, delayNext, errorReason = null) {
