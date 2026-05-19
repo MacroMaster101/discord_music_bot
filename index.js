@@ -103,6 +103,7 @@ async function execute(message, serverQueue, args) {
       textChannel: message.channel,
       voiceChannel,
       connection: null,
+      currentProcess: null,
       player: createAudioPlayer({
         behaviors: { noSubscriber: NoSubscriberBehavior.Play },
       }),
@@ -148,6 +149,7 @@ async function execute(message, serverQueue, args) {
 
       queueConstruct.player.on(AudioPlayerStatus.Idle, async () => {
         console.log('Song finished, checking queue...');
+        cleanupCurrentProcess(queueConstruct);
         queueConstruct.songs.shift();
         if (queueConstruct.songs.length > 0) {
           console.log(`▶️ Next: ${queueConstruct.songs[0].title}`);
@@ -160,6 +162,7 @@ async function execute(message, serverQueue, args) {
 
       queueConstruct.player.on('error', async (error) => {
         console.error('Player error:', error.message);
+        cleanupCurrentProcess(queueConstruct);
         message.channel.send(`❌ Playback error, skipping...`);
         queueConstruct.songs.shift();
         if (queueConstruct.songs.length > 0) {
@@ -200,6 +203,11 @@ function normalizeMediaUrl(input) {
   if (url.hostname.endsWith('youtube.com')) {
     const videoId = url.searchParams.get('v');
     if (videoId) return `https://www.youtube.com/watch?v=${videoId}`;
+
+    const pathParts = url.pathname.split('/').filter(Boolean);
+    if ((pathParts[0] === 'live' || pathParts[0] === 'shorts') && pathParts[1]) {
+      return `https://www.youtube.com/watch?v=${pathParts[1]}`;
+    }
   }
 
   return input;
@@ -235,9 +243,11 @@ async function playSong(guildId, song) {
   if (!serverQueue || !song) return;
 
   try {
-    // Use youtube-dl-exec to get stream URL
-    const info = await youtubedl(song.url, {
-      dumpSingleJson: true,
+    cleanupCurrentProcess(serverQueue);
+
+    const subprocess = youtubedl.exec(song.url, {
+      output: '-',
+      format: 'bestaudio/best',
       noCheckCertificates: true,
       noWarnings: true,
       noPlaylist: true,
@@ -245,30 +255,19 @@ async function playSong(guildId, song) {
       addHeader: ['referer:youtube.com', 'user-agent:googlebot'],
     });
 
-    // Get best audio format
-    const audioFormat = info.formats?.find(f => 
-      f.acodec && f.acodec !== 'none' && !f.vcodec
-    ) || info.formats?.find(f => f.acodec && f.acodec !== 'none');
-    
-    const audioUrl = audioFormat?.url || info.url;
-    if (!audioUrl) {
-      throw new Error('No audio URL found');
-    }
+    serverQueue.currentProcess = subprocess;
 
-    // Create resource from URL with proper input type and better buffering
-    const { default: fetch } = await import('node-fetch');
-    const response = await fetch(audioUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Range': 'bytes=0-',
-      }
+    let stderr = '';
+    subprocess.stderr?.on('data', (chunk) => {
+      stderr += chunk.toString();
     });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-    
-    const resource = createAudioResource(response.body, {
+
+    subprocess.catch((err) => {
+      const details = stderr.trim() || err.stderr || err.message || err;
+      console.error(`yt-dlp process error for ${song.url}:`, details);
+    });
+
+    const resource = createAudioResource(subprocess.stdout, {
       inputType: StreamType.Arbitrary,
       inlineVolume: true,
       metadata: {
@@ -282,14 +281,28 @@ async function playSong(guildId, song) {
     console.log(`▶️ Playing: ${song.title}`);
   } catch (err) {
     console.error('Play error:', err);
+    cleanupCurrentProcess(serverQueue);
     serverQueue.textChannel.send(`❌ Could not play: ${song.title}`);
     serverQueue.songs.shift();
     if (serverQueue.songs.length > 0) await playSong(guildId, serverQueue.songs[0]);
   }
 }
 
+function cleanupCurrentProcess(serverQueue) {
+  if (!serverQueue?.currentProcess) return;
+
+  try {
+    serverQueue.currentProcess.kill('SIGKILL');
+  } catch (err) {
+    console.warn('Could not stop yt-dlp process:', err.message || err);
+  } finally {
+    serverQueue.currentProcess = null;
+  }
+}
+
 function skip(message, serverQueue) {
   if (!serverQueue) return message.reply('❌ Nothing is playing!');
+  cleanupCurrentProcess(serverQueue);
   serverQueue.player.stop();
   message.reply('⏭️ Skipped!');
 }
@@ -297,6 +310,7 @@ function skip(message, serverQueue) {
 function stop(message, serverQueue) {
   if (!serverQueue) return message.reply('❌ Nothing is playing!');
   serverQueue.songs = [];
+  cleanupCurrentProcess(serverQueue);
   serverQueue.player.stop();
   const conn = getVoiceConnection(message.guild.id);
   if (conn) conn.destroy();
