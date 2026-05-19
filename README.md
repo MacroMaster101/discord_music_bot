@@ -10,6 +10,12 @@ A powerful, self-hostable Discord music bot that streams audio from YouTube with
 |---|---|
 | 🎵 **YouTube Playback** | Play by **search query** or **direct URL** (supports `youtube.com`, `youtu.be`, `/shorts/`, `/live/`) |
 | 🎛️ **Interactive Controls** | In-chat buttons: **Play Now**, **Skip**, **Queue**, **Stop** — no need to type commands |
+| ⏸️ **Pause & Resume** | Pause and resume playback at any time |
+| 🔊 **Volume Control** | Adjust playback volume from 0–100% |
+| 🔂 **Loop Modes** | Loop a single song, the entire queue, or disable looping |
+| 🔀 **Shuffle** | Shuffle upcoming songs in the queue |
+| 🎧 **Now Playing Embed** | Rich embed showing current song, volume, queue size, and loop status |
+| 📋 **Queue Management** | View, reorder, remove, and clear songs in the queue |
 | 🔊 **Voice Channel Status** | The currently playing song title is shown in the voice channel's status bar |
 | 🤖 **Presence** | Bot activity shows `!play · 🔊 In voice` while connected, `!play` otherwise |
 | 🍪 **Anti-Bot Bypass** | Cookie-based auth, PO token support, and automatic player-client fallback chains |
@@ -21,14 +27,41 @@ A powerful, self-hostable Discord music bot that streams audio from YouTube with
 
 ## 🎮 Commands
 
-All commands use the configurable prefix (default: `!`).
+All commands use the configurable prefix (default: `!`). Aliases are shown in parentheses.
 
-| Command | Description |
-|---|---|
-| `!play <song name or URL>` | Play a song or add it to the queue |
-| `!skip` | Skip the current song |
-| `!stop` | Stop playback, clear the queue, and disconnect |
-| `!queue` | Show the current queue |
+### 🎶 Playback
+
+| Command | Alias | Description |
+|---|---|---|
+| `!play <song name or URL>` | `!p` | Play a song or add it to the queue |
+| `!pause` | — | Pause the current song |
+| `!resume` | `!unpause` | Resume playback |
+| `!skip` | `!s` | Skip to the next song |
+| `!stop` | `!dc`, `!disconnect` | Stop playback, clear the queue, and disconnect |
+| `!nowplaying` | `!np` | Show the current song in a rich embed |
+
+### 📋 Queue
+
+| Command | Alias | Description |
+|---|---|---|
+| `!queue` | `!q` | Show the current queue |
+| `!shuffle` | — | Shuffle the upcoming songs |
+| `!remove <#>` | — | Remove a song by its queue position |
+| `!move <from> <to>` | `!mv` | Move a song to a different queue position |
+| `!clear` | — | Clear the queue (keeps the current song) |
+
+### 🔧 Settings
+
+| Command | Alias | Description |
+|---|---|---|
+| `!volume <0-100>` | `!vol` | Get or set the playback volume |
+| `!loop [off\|song\|queue]` | `!repeat` | Toggle loop mode (cycles: off → song → queue) |
+
+### ❓ Info
+
+| Command | Alias | Description |
+|---|---|---|
+| `!help` | `!h` | Show the full help menu in a rich embed |
 
 ### Button Controls
 

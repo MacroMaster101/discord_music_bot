@@ -10,6 +10,7 @@ const {
   ButtonBuilder,
   ButtonStyle,
   Client,
+  EmbedBuilder,
   GatewayIntentBits,
 } = require('discord.js');
 
@@ -149,10 +150,20 @@ client.on('messageCreate', async (message) => {
   const serverQueue = queue.get(message.guild.id);
 
   try {
-    if (command === 'play') await execute(message, serverQueue, args);
-    else if (command === 'skip') skip(message, serverQueue);
-    else if (command === 'stop') stop(message, serverQueue);
-    else if (command === 'queue') showQueue(message, serverQueue);
+    if (command === 'play' || command === 'p') await execute(message, serverQueue, args);
+    else if (command === 'skip' || command === 's') skip(message, serverQueue);
+    else if (command === 'stop' || command === 'dc' || command === 'disconnect') stop(message, serverQueue);
+    else if (command === 'queue' || command === 'q') showQueue(message, serverQueue);
+    else if (command === 'help' || command === 'h') sendHelp(message);
+    else if (command === 'pause') pause(message, serverQueue);
+    else if (command === 'resume' || command === 'unpause') resume(message, serverQueue);
+    else if (command === 'nowplaying' || command === 'np') nowPlaying(message, serverQueue);
+    else if (command === 'volume' || command === 'vol') setVolume(message, serverQueue, args);
+    else if (command === 'shuffle') shuffle(message, serverQueue);
+    else if (command === 'remove') removeSong(message, serverQueue, args);
+    else if (command === 'loop' || command === 'repeat') loopCommand(message, serverQueue, args);
+    else if (command === 'clear') clearQueue(message, serverQueue);
+    else if (command === 'move' || command === 'mv') moveCommand(message, serverQueue, args);
   } catch (err) {
     console.error('Error:', err);
     message.reply('⚠️ Something went wrong!');
@@ -264,6 +275,7 @@ async function execute(message, serverQueue, args) {
       advancingSongId: null,
       idleTimeout: null,
       stopped: false,
+      loop: null, // null | 'song' | 'queue'
       player: createAudioPlayer({
         behaviors: { noSubscriber: NoSubscriberBehavior.Play },
       }),
@@ -638,7 +650,24 @@ function advanceQueue(guildId, serverQueue, delayNext, errorReason = null) {
   serverQueue.advancingSongId = songId;
   cleanupCurrentProcess(serverQueue);
 
-  serverQueue.songs.shift();
+  // Handle loop modes
+  if (serverQueue.loop === 'song' && serverQueue.songs[0] && !errorReason) {
+    // Re-play the same song
+    const currentSong = serverQueue.songs[0];
+    console.log(`🔂 Looping: ${currentSong.title}`);
+    const replay = () => playSong(guildId, currentSong);
+    if (delayNext) setTimeout(replay, 1000);
+    else replay();
+    return;
+  }
+
+  if (serverQueue.loop === 'queue' && serverQueue.songs[0] && !errorReason) {
+    // Move current song to end, then play next
+    const finishedSong = serverQueue.songs.shift();
+    serverQueue.songs.push(finishedSong);
+  } else {
+    serverQueue.songs.shift();
+  }
 
   const nextSong = serverQueue.songs[0];
   if (nextSong) {
@@ -754,10 +783,212 @@ function showQueue(message, serverQueue) {
 }
 
 function getQueueText(serverQueue) {
+  const loopIndicator = serverQueue.loop === 'song' ? ' 🔂 Song loop' : serverQueue.loop === 'queue' ? ' 🔁 Queue loop' : '';
   const queueList = serverQueue.songs
     .map((song, i) => `${i === 0 ? '▶️' : `${i}.`} ${song.title}`)
     .join('\n');
-  return `🎵 **Queue:**\n${queueList}`;
+  return `🎵 **Queue${loopIndicator}:**\n${queueList}`;
+}
+
+// ──── Help Command ────
+function sendHelp(message) {
+  const embed = new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setTitle('🎵 J4FN Music Bot — Commands')
+    .setDescription(`Use prefix \`${PREFIX}\` before each command.\nAliases are shown in parentheses.`)
+    .addFields(
+      {
+        name: '🎶  Playback',
+        value: [
+          `\`${PREFIX}play <song>\` *(p)* — Play a song by name or URL`,
+          `\`${PREFIX}pause\` — Pause the current song`,
+          `\`${PREFIX}resume\` *(unpause)* — Resume playback`,
+          `\`${PREFIX}skip\` *(s)* — Skip to the next song`,
+          `\`${PREFIX}stop\` *(dc, disconnect)* — Stop playback and disconnect`,
+          `\`${PREFIX}nowplaying\` *(np)* — Show the current song`,
+        ].join('\n'),
+      },
+      {
+        name: '📋  Queue',
+        value: [
+          `\`${PREFIX}queue\` *(q)* — View the current queue`,
+          `\`${PREFIX}shuffle\` — Shuffle the upcoming songs`,
+          `\`${PREFIX}remove <#>\` — Remove a song by its position`,
+          `\`${PREFIX}move <from> <to>\` *(mv)* — Move a song to a new position`,
+          `\`${PREFIX}clear\` — Clear the entire queue (keeps current song)`,
+        ].join('\n'),
+      },
+      {
+        name: '🔧  Settings',
+        value: [
+          `\`${PREFIX}volume <0-100>\` *(vol)* — Set playback volume`,
+          `\`${PREFIX}loop [off|song|queue]\` *(repeat)* — Toggle loop mode`,
+        ].join('\n'),
+      },
+      {
+        name: '❓  Info',
+        value: `\`${PREFIX}help\` *(h)* — Show this help menu`,
+      }
+    )
+    .setFooter({ text: '🎧 Enjoy the music! • Interactive buttons are also available on now-playing messages.' })
+    .setTimestamp();
+
+  message.reply({ embeds: [embed] });
+}
+
+// ──── Pause & Resume ────
+function pause(message, serverQueue) {
+  if (!serverQueue) return message.reply('❌ Nothing is playing!');
+  if (serverQueue.player.state.status === AudioPlayerStatus.Paused) {
+    return message.reply('⏸️ Already paused! Use `' + PREFIX + 'resume` to continue.');
+  }
+  serverQueue.player.pause();
+  message.reply('⏸️ Paused!');
+}
+
+function resume(message, serverQueue) {
+  if (!serverQueue) return message.reply('❌ Nothing is playing!');
+  if (serverQueue.player.state.status !== AudioPlayerStatus.Paused) {
+    return message.reply('▶️ Not currently paused!');
+  }
+  serverQueue.player.unpause();
+  message.reply('▶️ Resumed!');
+}
+
+// ──── Now Playing ────
+function nowPlaying(message, serverQueue) {
+  if (!serverQueue || !serverQueue.songs.length) {
+    return message.reply('❌ Nothing is playing right now!');
+  }
+
+  const song = serverQueue.songs[0];
+  const isPaused = serverQueue.player.state.status === AudioPlayerStatus.Paused;
+  const loopText = serverQueue.loop === 'song' ? ' • 🔂 Looping song' : serverQueue.loop === 'queue' ? ' • 🔁 Looping queue' : '';
+
+  const embed = new EmbedBuilder()
+    .setColor(isPaused ? 0xFEE75C : 0x57F287)
+    .setTitle(isPaused ? '⏸️ Currently Paused' : '▶️ Now Playing')
+    .setDescription(`**[${song.title}](${song.url})**${loopText}`)
+    .addFields(
+      { name: 'Queue', value: `${serverQueue.songs.length - 1} song(s) remaining`, inline: true },
+      { name: 'Volume', value: `${getVolume(serverQueue)}%`, inline: true }
+    )
+    .setTimestamp();
+
+  message.reply({ embeds: [embed] });
+}
+
+function getVolume(serverQueue) {
+  const resource = serverQueue.player.state?.resource;
+  if (resource?.volume) {
+    return Math.round(resource.volume.volume * 100);
+  }
+  return 50;
+}
+
+// ──── Volume ────
+function setVolume(message, serverQueue, args) {
+  if (!serverQueue) return message.reply('❌ Nothing is playing!');
+
+  if (!args.length) {
+    return message.reply(`🔊 Current volume: **${getVolume(serverQueue)}%**`);
+  }
+
+  const vol = parseInt(args[0], 10);
+  if (isNaN(vol) || vol < 0 || vol > 100) {
+    return message.reply('❌ Volume must be a number between 0 and 100.');
+  }
+
+  const resource = serverQueue.player.state?.resource;
+  if (resource?.volume) {
+    resource.volume.setVolume(vol / 100);
+    message.reply(`🔊 Volume set to **${vol}%**`);
+  } else {
+    message.reply('❌ Cannot adjust volume right now.');
+  }
+}
+
+// ──── Shuffle ────
+function shuffle(message, serverQueue) {
+  if (!serverQueue || serverQueue.songs.length < 3) {
+    return message.reply('❌ Not enough songs in the queue to shuffle! (Need at least 2 upcoming songs)');
+  }
+
+  const upcoming = serverQueue.songs.slice(1);
+  for (let i = upcoming.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [upcoming[i], upcoming[j]] = [upcoming[j], upcoming[i]];
+  }
+  serverQueue.songs = [serverQueue.songs[0], ...upcoming];
+  message.reply(`🔀 Shuffled **${upcoming.length}** songs in the queue!`);
+}
+
+// ──── Remove ────
+function removeSong(message, serverQueue, args) {
+  if (!serverQueue || !serverQueue.songs.length) {
+    return message.reply('❌ Queue is empty!');
+  }
+
+  const pos = parseInt(args[0], 10);
+  if (isNaN(pos) || pos < 1 || pos >= serverQueue.songs.length) {
+    return message.reply(`❌ Invalid position! Use a number between 1 and ${serverQueue.songs.length - 1}.`);
+  }
+
+  const removed = serverQueue.songs.splice(pos, 1)[0];
+  message.reply(`🗑️ Removed **${removed.title}** from position ${pos}.`);
+}
+
+// ──── Loop ────
+function loopCommand(message, serverQueue, args) {
+  if (!serverQueue) return message.reply('❌ Nothing is playing!');
+
+  const mode = (args[0] || '').toLowerCase();
+  const MODES = ['off', 'song', 'queue'];
+
+  if (mode && MODES.includes(mode)) {
+    serverQueue.loop = mode === 'off' ? null : mode;
+  } else {
+    // Cycle: off → song → queue → off
+    if (!serverQueue.loop) serverQueue.loop = 'song';
+    else if (serverQueue.loop === 'song') serverQueue.loop = 'queue';
+    else serverQueue.loop = null;
+  }
+
+  const labels = { song: '🔂 Looping current song', queue: '🔁 Looping entire queue' };
+  const label = labels[serverQueue.loop] || '➡️ Loop disabled';
+  message.reply(label);
+}
+
+// ──── Clear Queue ────
+function clearQueue(message, serverQueue) {
+  if (!serverQueue || serverQueue.songs.length <= 1) {
+    return message.reply('❌ No upcoming songs to clear!');
+  }
+
+  const count = serverQueue.songs.length - 1;
+  serverQueue.songs = [serverQueue.songs[0]];
+  message.reply(`🗑️ Cleared **${count}** song(s) from the queue.`);
+}
+
+// ──── Move ────
+function moveCommand(message, serverQueue, args) {
+  if (!serverQueue || serverQueue.songs.length <= 1) {
+    return message.reply('❌ Not enough songs in the queue to move!');
+  }
+
+  const from = parseInt(args[0], 10);
+  const to = parseInt(args[1], 10);
+  const max = serverQueue.songs.length - 1;
+
+  if (isNaN(from) || isNaN(to) || from < 1 || from > max || to < 1 || to > max) {
+    return message.reply(`❌ Usage: \`${PREFIX}move <from> <to>\` — positions 1 to ${max}`);
+  }
+
+  if (from === to) return message.reply('❌ Source and destination are the same!');
+
+  const [song] = serverQueue.songs.splice(from, 1);
+  serverQueue.songs.splice(to, 0, song);
+  message.reply(`↕️ Moved **${song.title}** from position ${from} to ${to}.`);
 }
 
 client.login(TOKEN);
