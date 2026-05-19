@@ -182,7 +182,6 @@ async function execute(message, serverQueue, args) {
       currentProcess: null,
       currentSongId: null,
       advancingSongId: null,
-      originalNickname: message.guild.members.me?.nickname ?? null,
       idleTimeout: null,
       stopped: false,
       player: createAudioPlayer({
@@ -448,7 +447,6 @@ async function playSong(guildId, song) {
     resource.volume?.setVolume(0.5);
     serverQueue.player.play(resource);
     updatePresence(song.title);
-    updateVoiceDisplayName(guildId, song.title);
     serverQueue.textChannel.send({
       content: `▶️ Now playing: **${song.title}**`,
       components: [createMusicControls()],
@@ -553,7 +551,6 @@ function advanceQueue(guildId, serverQueue, delayNext, errorReason = null) {
   serverQueue.currentSongId = null;
   serverQueue.advancingSongId = null;
   updatePresence();
-  resetVoiceDisplayName(guildId, serverQueue);
 
   if (errorReason) {
     console.log('⚠️ Queue empty after playback error, disconnecting soon');
@@ -583,45 +580,6 @@ function updatePresence(songTitle) {
     activities: [{ name: title, type: ActivityType.Listening }],
     status: 'online',
   });
-}
-
-async function updateVoiceDisplayName(guildId, songTitle) {
-  const guild = client.guilds.cache.get(guildId);
-  const botMember = guild?.members.me;
-  if (!botMember || !songTitle) return;
-
-  const nickname = formatMusicNickname(songTitle);
-  if (botMember.displayName === nickname) return;
-
-  try {
-    await botMember.setNickname(nickname, 'Show current playing song in voice/member list');
-  } catch (err) {
-    console.warn('Could not update bot nickname:', err.message || err);
-  }
-}
-
-async function resetVoiceDisplayName(guildId, serverQueue) {
-  const guild = client.guilds.cache.get(guildId);
-  const botMember = guild?.members.me;
-  if (!botMember) return;
-
-  const nickname = serverQueue?.originalNickname ?? null;
-  if (botMember.nickname === nickname) return;
-
-  try {
-    await botMember.setNickname(nickname, 'Reset music status nickname');
-  } catch (err) {
-    console.warn('Could not reset bot nickname:', err.message || err);
-  }
-}
-
-function formatMusicNickname(songTitle) {
-  const prefix = '🎵 ';
-  const maxTitleLength = 32 - prefix.length;
-  const title = songTitle.length > maxTitleLength
-    ? `${songTitle.slice(0, maxTitleLength - 3)}...`
-    : songTitle;
-  return `${prefix}${title}`;
 }
 
 function cleanupCurrentProcess(serverQueue) {
@@ -691,7 +649,6 @@ function teardownQueue(guildId, serverQueue, destroyConnection) {
 
   queue.delete(guildId);
   updatePresence();
-  resetVoiceDisplayName(guildId, serverQueue);
 }
 
 function showQueue(message, serverQueue) {
