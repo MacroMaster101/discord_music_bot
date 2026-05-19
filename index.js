@@ -511,7 +511,7 @@ async function playSong(guildId, song) {
     
     resource.volume?.setVolume(0.5);
     serverQueue.player.play(resource);
-    updatePresence(song.title);
+    updatePresence(true);
     setVoiceChannelStatus(serverQueue.voiceChannel.id, `🎵 ${song.title}`);
     serverQueue.textChannel.send({
       content: `▶️ Now playing: **${song.title}**`,
@@ -627,21 +627,14 @@ function advanceQueue(guildId, serverQueue, delayNext, errorReason = null) {
   scheduleIdleDisconnect(guildId, serverQueue, IDLE_DISCONNECT_MS);
 }
 
-function updatePresence(songTitle) {
+function updatePresence(inVoice) {
   if (!client.user) return;
 
-  if (songTitle) {
-    const title = songTitle.length > 120 ? `${songTitle.slice(0, 117)}...` : songTitle;
-    client.user.setPresence({
-      activities: [{ name: title, type: ActivityType.Listening }],
-      status: 'online',
-    });
-  } else {
-    client.user.setPresence({
-      activities: [{ name: `${PREFIX}play`, type: ActivityType.Listening }],
-      status: 'online',
-    });
-  }
+  const activityName = inVoice ? `${PREFIX}play · 🔊 In voice` : `${PREFIX}play`;
+  client.user.setPresence({
+    activities: [{ name: activityName, type: ActivityType.Listening }],
+    status: 'online',
+  });
 }
 
 function cleanupCurrentProcess(serverQueue) {
