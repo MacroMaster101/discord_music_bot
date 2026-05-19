@@ -26,6 +26,7 @@ const youtubedl = require('youtube-dl-exec');
 const PREFIX = process.env.PREFIX || '!';
 const TOKEN = process.env.TOKEN || process.env.DISCORD_TOKEN || process.env.BOT_TOKEN;
 const IDLE_DISCONNECT_MS = 10000;
+const ERROR_DISCONNECT_MS = 5000;
 let nextSongId = 1;
 
 if (!TOKEN) {
@@ -455,16 +456,19 @@ async function playSong(guildId, song) {
     console.log(`▶️ Playing: ${song.title}`);
     return true;
   } catch (err) {
-    const reason = getPlayErrorMessage(err);
-    console.error('Play error:', reason);
+    const technicalReason = getTechnicalErrorMessage(err);
+    const publicReason = getPublicPlayErrorMessage(technicalReason);
+    console.error('Play error:', technicalReason);
     cleanupCurrentProcess(serverQueue);
-    serverQueue.textChannel.send(`❌ Could not play: **${song.title}**\nReason: ${reason}`);
-    advanceQueue(guildId, serverQueue, true);
+    serverQueue.textChannel.send(
+      `⚠️ I couldn't play that track. ${publicReason} Disconnecting if there is nothing else queued.`
+    );
+    advanceQueue(guildId, serverQueue, true, publicReason);
     return false;
   }
 }
 
-function getPlayErrorMessage(err) {
+function getTechnicalErrorMessage(err) {
   const rawMessage = (err?.stderr || err?.message || String(err)).trim();
   const firstUsefulLine = rawMessage
     .split(/\r?\n/)
@@ -472,7 +476,41 @@ function getPlayErrorMessage(err) {
     .find((line) => line && !line.startsWith('WARNING:'));
 
   const message = firstUsefulLine || rawMessage || 'Unknown playback error';
-  return message.length > 250 ? `${message.slice(0, 247)}...` : message;
+  return message.length > 1000 ? `${message.slice(0, 997)}...` : message;
+}
+
+function getPublicPlayErrorMessage(reason) {
+  const message = reason.toLowerCase();
+
+  if (message.includes('sign in to confirm') || message.includes('not a bot')) {
+    return 'YouTube blocked this request for bot verification. Please try a different video or search term.';
+  }
+
+  if (message.includes('private video')) {
+    return 'That video is private.';
+  }
+
+  if (message.includes('unavailable')) {
+    return 'That video is unavailable from the bot server.';
+  }
+
+  if (message.includes('age-restricted') || message.includes('age restricted')) {
+    return 'That video is age restricted.';
+  }
+
+  if (message.includes('copyright') || message.includes('blocked')) {
+    return 'That video is blocked for playback.';
+  }
+
+  if (message.includes('did not return an audio url') || message.includes('requested format is not available')) {
+    return 'I could not get a playable audio stream for that track.';
+  }
+
+  if (message.includes('ffmpeg')) {
+    return 'The audio stream failed while starting.';
+  }
+
+  return 'Please try another link or song name.';
 }
 
 async function getAudioUrl(url) {
@@ -488,7 +526,7 @@ async function getAudioUrl(url) {
   return getBestAudioUrl(info);
 }
 
-function advanceQueue(guildId, serverQueue, delayNext) {
+function advanceQueue(guildId, serverQueue, delayNext, errorReason = null) {
   if (serverQueue.stopped || !queue.has(guildId)) return;
 
   const songId = serverQueue.currentSongId;
@@ -514,11 +552,19 @@ function advanceQueue(guildId, serverQueue, delayNext) {
 
   serverQueue.currentSongId = null;
   serverQueue.advancingSongId = null;
-  console.log('✅ Queue empty, bot will stay in voice channel');
   updatePresence();
   resetVoiceDisplayName(guildId, serverQueue);
+
+  if (errorReason) {
+    console.log('⚠️ Queue empty after playback error, disconnecting soon');
+    serverQueue.textChannel.send(`⚠️ Playback stopped. ${errorReason} Disconnecting in 5 seconds.`);
+    scheduleIdleDisconnect(guildId, serverQueue, ERROR_DISCONNECT_MS);
+    return;
+  }
+
+  console.log('✅ Queue empty, disconnecting soon');
   serverQueue.textChannel.send('✅ Queue finished! Disconnecting in 10 seconds unless you add another song.');
-  scheduleIdleDisconnect(guildId, serverQueue);
+  scheduleIdleDisconnect(guildId, serverQueue, IDLE_DISCONNECT_MS);
 }
 
 function updatePresence(songTitle) {
@@ -590,7 +636,7 @@ function cleanupCurrentProcess(serverQueue) {
   }
 }
 
-function scheduleIdleDisconnect(guildId, serverQueue) {
+function scheduleIdleDisconnect(guildId, serverQueue, delayMs = IDLE_DISCONNECT_MS) {
   clearIdleDisconnect(serverQueue);
   serverQueue.idleTimeout = setTimeout(() => {
     const latestQueue = queue.get(guildId);
