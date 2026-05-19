@@ -638,11 +638,7 @@ function advanceQueue(guildId, serverQueue, delayNext, errorReason = null) {
   serverQueue.advancingSongId = songId;
   cleanupCurrentProcess(serverQueue);
 
-  if (serverQueue.songs[0]?.id === songId) {
-    serverQueue.songs.shift();
-  } else {
-    serverQueue.songs.shift();
-  }
+  serverQueue.songs.shift();
 
   const nextSong = serverQueue.songs[0];
   if (nextSong) {
