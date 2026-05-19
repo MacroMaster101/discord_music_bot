@@ -1,5 +1,8 @@
 require('dotenv').config();
 const { spawn } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 const {
   ActionRowBuilder,
@@ -27,11 +30,62 @@ const PREFIX = process.env.PREFIX || '!';
 const TOKEN = process.env.TOKEN || process.env.DISCORD_TOKEN || process.env.BOT_TOKEN;
 const IDLE_DISCONNECT_MS = 10000;
 const ERROR_DISCONNECT_MS = 5000;
+const YTDLP_COOKIES_PATH = process.env.YTDLP_COOKIES_PATH || process.env.YTDLP_COOKIES;
+const YTDLP_COOKIES_BASE64 = process.env.YTDLP_COOKIES_BASE64;
+const VOICE_STATUS_ROUTE = (channelId) => `/channels/${channelId}/voice-status`;
 let nextSongId = 1;
+let tempCookiesPath = null;
 
 if (!TOKEN) {
   console.error('Missing Discord bot token. Set TOKEN in your environment.');
   process.exit(1);
+}
+
+// Resolve cookies file for yt-dlp
+function resolveCookiesPath() {
+  if (YTDLP_COOKIES_PATH && fs.existsSync(YTDLP_COOKIES_PATH)) {
+    return YTDLP_COOKIES_PATH;
+  }
+  if (YTDLP_COOKIES_BASE64) {
+    const tmpDir = os.tmpdir();
+    const cookiesFile = path.join(tmpDir, 'ytdlp_cookies.txt');
+    fs.writeFileSync(cookiesFile, Buffer.from(YTDLP_COOKIES_BASE64, 'base64'));
+    return cookiesFile;
+  }
+  return null;
+}
+
+tempCookiesPath = resolveCookiesPath();
+if (tempCookiesPath) {
+  console.log(`\u{1F36A} Using cookies file: ${tempCookiesPath}`);
+}
+
+function getYtdlpBaseOptions() {
+  const opts = {
+    noCheckCertificates: true,
+    noWarnings: true,
+    noPlaylist: true,
+    preferFreeFormats: true,
+    addHeader: [
+      'referer:youtube.com',
+      'user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    ],
+    extractorArgs: 'youtube:player_client=web,default',
+  };
+  if (tempCookiesPath) {
+    opts.cookies = tempCookiesPath;
+  }
+  return opts;
+}
+
+async function setVoiceChannelStatus(channelId, status) {
+  try {
+    await client.rest.put(VOICE_STATUS_ROUTE(channelId), {
+      body: { status: status || '' },
+    });
+  } catch (err) {
+    console.warn('Could not set voice channel status:', err.message || err);
+  }
 }
 
 const client = new Client({
@@ -304,10 +358,8 @@ async function getSongFromUrl(input) {
 
   try {
     const videoInfo = await youtubedl(url, {
+      ...getYtdlpBaseOptions(),
       dumpSingleJson: true,
-      noCheckCertificates: true,
-      noWarnings: true,
-      noPlaylist: true,
       skipDownload: true,
     });
 
@@ -446,7 +498,8 @@ async function playSong(guildId, song) {
     
     resource.volume?.setVolume(0.5);
     serverQueue.player.play(resource);
-    updatePresence(song.title);
+    updatePresence();
+    setVoiceChannelStatus(serverQueue.voiceChannel.id, `🎵 ${song.title}`);
     serverQueue.textChannel.send({
       content: `▶️ Now playing: **${song.title}**`,
       components: [createMusicControls()],
@@ -513,12 +566,8 @@ function getPublicPlayErrorMessage(reason) {
 
 async function getAudioUrl(url) {
   const info = await youtubedl(url, {
+    ...getYtdlpBaseOptions(),
     dumpSingleJson: true,
-    noCheckCertificates: true,
-    noWarnings: true,
-    noPlaylist: true,
-    preferFreeFormats: true,
-    addHeader: ['referer:youtube.com', 'user-agent:googlebot'],
   });
 
   return getBestAudioUrl(info);
@@ -551,6 +600,7 @@ function advanceQueue(guildId, serverQueue, delayNext, errorReason = null) {
   serverQueue.currentSongId = null;
   serverQueue.advancingSongId = null;
   updatePresence();
+  setVoiceChannelStatus(serverQueue.voiceChannel.id, '');
 
   if (errorReason) {
     console.log('⚠️ Queue empty after playback error, disconnecting soon');
@@ -564,20 +614,11 @@ function advanceQueue(guildId, serverQueue, delayNext, errorReason = null) {
   scheduleIdleDisconnect(guildId, serverQueue, IDLE_DISCONNECT_MS);
 }
 
-function updatePresence(songTitle) {
+function updatePresence() {
   if (!client.user) return;
 
-  if (!songTitle) {
-    client.user.setPresence({
-      activities: [{ name: `${PREFIX}play`, type: ActivityType.Listening }],
-      status: 'online',
-    });
-    return;
-  }
-
-  const title = songTitle.length > 120 ? `${songTitle.slice(0, 117)}...` : songTitle;
   client.user.setPresence({
-    activities: [{ name: title, type: ActivityType.Listening }],
+    activities: [{ name: `${PREFIX}play`, type: ActivityType.Listening }],
     status: 'online',
   });
 }
@@ -649,6 +690,7 @@ function teardownQueue(guildId, serverQueue, destroyConnection) {
 
   queue.delete(guildId);
   updatePresence();
+  setVoiceChannelStatus(serverQueue.voiceChannel.id, '');
 }
 
 function showQueue(message, serverQueue) {
