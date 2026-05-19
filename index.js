@@ -82,18 +82,8 @@ async function execute(message, serverQueue, args) {
 
   try {
     // Check if URL or search
-    if (searchText.startsWith('http')) {
-      const videoInfo = await youtubedl(searchText, {
-        dumpSingleJson: true,
-        noCheckCertificates: true,
-        noWarnings: true,
-        skipDownload: true,
-      });
-
-      song = {
-        title: videoInfo.title || searchText,
-        url: videoInfo.webpage_url || videoInfo.original_url || searchText,
-      };
+    if (isUrl(searchText)) {
+      song = await getSongFromUrl(searchText);
     } else {
       const searchResult = await ytSearch(searchText);
       const video = searchResult.videos[0];
@@ -190,6 +180,56 @@ async function execute(message, serverQueue, args) {
   }
 }
 
+function isUrl(input) {
+  try {
+    const url = new URL(input);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function normalizeMediaUrl(input) {
+  const url = new URL(input);
+
+  if (url.hostname === 'youtu.be') {
+    const videoId = url.pathname.split('/').filter(Boolean)[0];
+    if (videoId) return `https://www.youtube.com/watch?v=${videoId}`;
+  }
+
+  if (url.hostname.endsWith('youtube.com')) {
+    const videoId = url.searchParams.get('v');
+    if (videoId) return `https://www.youtube.com/watch?v=${videoId}`;
+  }
+
+  return input;
+}
+
+async function getSongFromUrl(input) {
+  const url = normalizeMediaUrl(input);
+
+  try {
+    const videoInfo = await youtubedl(url, {
+      dumpSingleJson: true,
+      noCheckCertificates: true,
+      noWarnings: true,
+      noPlaylist: true,
+      skipDownload: true,
+    });
+
+    return {
+      title: videoInfo.title || url,
+      url: videoInfo.webpage_url || videoInfo.original_url || url,
+    };
+  } catch (err) {
+    console.warn(`Metadata lookup failed for ${url}:`, err.message || err);
+    return {
+      title: url,
+      url,
+    };
+  }
+}
+
 async function playSong(guildId, song) {
   const serverQueue = queue.get(guildId);
   if (!serverQueue || !song) return;
@@ -200,6 +240,7 @@ async function playSong(guildId, song) {
       dumpSingleJson: true,
       noCheckCertificates: true,
       noWarnings: true,
+      noPlaylist: true,
       preferFreeFormats: true,
       addHeader: ['referer:youtube.com', 'user-agent:googlebot'],
     });
