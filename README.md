@@ -1,73 +1,196 @@
-# J4FN MUSIC - Discord Music Bot 🎵
+# J4FN MUSIC — Discord Music Bot 🎵
 
-A powerful and reliable Discord music bot that plays music from YouTube, featuring robust anti-bot bypass mechanisms and interactive controls.
+A powerful, self-hostable Discord music bot that streams audio from YouTube with robust anti-bot bypass mechanisms, interactive message controls, and automatic voice-channel management.
 
-## Features
-- 🎵 **Play music from YouTube** (Supports direct URLs and search queries)
-- 🎛️ **Interactive Controls** (Play Next, Skip, Queue, and Stop buttons right in chat)
-- 🔊 **Voice Channel Status** (Displays the currently playing song dynamically in the Voice Channel status)
-- 🍪 **YouTube Anti-Bot Bypass** (Cookies support to prevent getting blocked by YouTube)
-- 🔄 **Auto-disconnect & Cleanup** (Leaves when idle or manually disconnected, auto-resets nickname on startup)
-- 🎚️ **Volume control** (Optimized default volume for comfortable listening)
-- 📋 **View Queue** (See what's coming up next)
+---
 
-## Commands
-- `!play <song name or URL>` - Play a song or add it to the queue
-- `!skip` - Skip current song
-- `!stop` - Stop playback and clear queue
-- `!queue` - Show the current queue
+## ✨ Features
 
-## Setup
+| Category | Details |
+|---|---|
+| 🎵 **YouTube Playback** | Play by **search query** or **direct URL** (supports `youtube.com`, `youtu.be`, `/shorts/`, `/live/`) |
+| 🎛️ **Interactive Controls** | In-chat buttons: **Play Now**, **Skip**, **Queue**, **Stop** — no need to type commands |
+| 🔊 **Voice Channel Status** | The currently playing song title is shown in the voice channel's status bar |
+| 🤖 **Presence** | Bot activity shows `!play · 🔊 In voice` while connected, `!play` otherwise |
+| 🍪 **Anti-Bot Bypass** | Cookie-based auth, PO token support, and automatic player-client fallback chains |
+| 🔄 **Auto-Reconnect** | Automatically rejoins voice if the connection drops while songs remain in the queue |
+| ⏱️ **Idle Disconnect** | Leaves the voice channel after 10 seconds of an empty queue (5 s on error) |
+| 🏷️ **Nickname Reset** | Resets the bot's server nickname to the application default on every startup |
 
-1. Clone this repository
-2. Use Node.js 22.12 or newer
-3. Install dependencies:
-   ```bash
-   npm ci
-   ```
-4. Create a `.env` file with:
-   ```env
-   TOKEN=your_discord_bot_token
-   PREFIX=!
-   
-   # Optional: Provide YouTube cookies to bypass bot detection/age restrictions
-   # YTDLP_COOKIES_PATH=./cookies.txt 
-   # YTDLP_COOKIES_BASE64=base64_encoded_cookies_here
-   ```
-5. Run the bot:
-   ```bash
-   npm start
-   ```
+---
 
-## YouTube Cookies Setup (Bypass Blockers)
-If YouTube starts blocking playback ("Sign in to confirm you're not a bot"), you need to provide cookies:
-1. Extract your YouTube cookies using a browser extension like "Get cookies.txt LOCALLY".
-2. Save them as `cookies.txt` and set `YTDLP_COOKIES_PATH=./cookies.txt` in your `.env`.
-3. Alternatively, encode the file contents into Base64 and set `YTDLP_COOKIES_BASE64`.
+## 🎮 Commands
 
-## Deployment
+All commands use the configurable prefix (default: `!`).
 
-### Railway.app / Render (Recommended)
-1. Push code to GitHub
-2. Connect your hosting provider to your GitHub repo
-3. Add environment variables (`TOKEN`, `PREFIX`, `YTDLP_COOKIES_BASE64`)
-4. Deploy!
+| Command | Description |
+|---|---|
+| `!play <song name or URL>` | Play a song or add it to the queue |
+| `!skip` | Skip the current song |
+| `!stop` | Stop playback, clear the queue, and disconnect |
+| `!queue` | Show the current queue |
+
+### Button Controls
+
+Every "Now Playing" and "Added to Queue" message includes interactive buttons:
+
+- **Play Now** — Immediately plays a queued song (skips the current one)
+- **Skip** — Skip the current song
+- **Queue** — View the queue (shown ephemerally, only visible to you)
+- **Stop** — Stop playback and disconnect
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- **Node.js 22.12+**
+- **FFmpeg** — bundled via `ffmpeg-static` for local use; Docker/Nixpacks install it automatically
+- A **Discord Bot Token** with the following gateway intents enabled:
+  - `Guilds`
+  - `Guild Messages`
+  - `Message Content` (privileged)
+  - `Guild Voice States`
+
+### Installation
+
+```bash
+git clone https://github.com/MacroMaster101/discord_music_bot.git
+cd discord_music_bot
+npm ci
+```
+
+### Configuration
+
+Copy the example environment file and fill in your values:
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Required | Description |
+|---|---|---|
+| `TOKEN` | ✅ | Discord bot token (also reads `DISCORD_TOKEN` / `BOT_TOKEN`) |
+| `PREFIX` | — | Command prefix (default: `!`) |
+| `YTDLP_COOKIES_PATH` | — | Path to a Netscape-format `cookies.txt` file |
+| `YTDLP_COOKIES_BASE64` | — | Base64-encoded cookies (great for cloud hosts like Railway) |
+| `YTDLP_PO_TOKEN` | — | YouTube Proof-of-Origin token (advanced, see [yt-dlp docs](https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide)) |
+
+### Run
+
+```bash
+npm start
+```
+
+---
+
+## 🍪 YouTube Cookies Setup
+
+If YouTube starts blocking playback with _"Sign in to confirm you're not a bot"_, you need to supply session cookies:
+
+1. Install a browser extension like **"Get cookies.txt LOCALLY"**.
+2. Log in to YouTube in your browser, then export the cookies.
+3. Provide them to the bot via **one** of these methods:
+
+| Method | How |
+|---|---|
+| **File path** | Save as `cookies.txt` and set `YTDLP_COOKIES_PATH=./cookies.txt` in `.env` |
+| **Base64** | Encode the file (`base64 cookies.txt`) and set `YTDLP_COOKIES_BASE64=<encoded>` in `.env` |
+
+> **Tip:** Base64 is recommended for cloud platforms (Railway, Render) where you can't upload files easily — just paste the value into the environment variable dashboard.
+
+---
+
+## 🛡️ Anti-Bot Fallback System
+
+The bot automatically rotates through multiple YouTube player-client chains when a request is blocked:
+
+```
+web_safari, web_embedded, default
+→ mweb, default
+→ tv_simply, default, -tv
+→ web, default
+```
+
+Each chain is tried in order. If one is blocked (403 / "Sign in" / "not a bot"), the next chain is attempted. This happens transparently for both metadata lookups and audio stream extraction.
+
+---
+
+## 🐳 Deployment
+
+### Docker
+
+```bash
+docker build -t j4fn-music .
+docker run -d --name j4fn-music \
+  -e TOKEN=your_discord_bot_token \
+  -e PREFIX=! \
+  -e YTDLP_COOKIES_BASE64=your_base64_cookies \
+  j4fn-music
+```
+
+The Dockerfile:
+- Uses **Node.js 22 slim** base image
+- Installs **FFmpeg** and **Python 3** (needed by yt-dlp)
+- Automatically upgrades the bundled **yt-dlp** binary to the latest version on build
+
+### Railway / Render / Nixpacks
+
+1. Push the code to GitHub.
+2. Connect your hosting provider to the repo.
+3. Add environment variables (`TOKEN`, `PREFIX`, `YTDLP_COOKIES_BASE64`).
+4. Deploy — the included `nixpacks.toml` ensures **Node.js 22**, **Python 3**, and **FFmpeg** are available.
 
 ### Local
-Just run `npm start` and keep your PC on.
 
-## Requirements
-- Node.js 22.12+
-- Discord Bot Token (with Message Content and Voice State intents enabled)
-- FFmpeg (installed automatically in Docker/Nixpacks or available via ffmpeg-static)
+```bash
+npm start
+```
 
-## Tech Stack
-- discord.js v14
-- @discordjs/voice
-- opusscript
-- youtube-dl-exec (yt-dlp)
-- yt-search
-- ffmpeg-static
+Keep the terminal (or your PC) running. The bot stays online as long as the process is alive.
 
-## License
+---
+
+## 🏗️ Project Structure
+
+```
+discord_music_bot/
+├── index.js            # Bot logic (commands, playback, queue, controls)
+├── package.json        # Dependencies & scripts
+├── Dockerfile          # Docker container definition
+├── nixpacks.toml       # Nixpacks build config (Railway, etc.)
+├── .env.example        # Environment variable template
+├── .gitignore          # Git ignore rules
+└── .dockerignore       # Docker ignore rules
+```
+
+---
+
+## 📦 Tech Stack
+
+| Package | Purpose |
+|---|---|
+| [discord.js](https://discord.js.org/) v14 | Discord API client |
+| [@discordjs/voice](https://github.com/discordjs/discord.js/tree/main/packages/voice) | Voice connection & audio player |
+| [youtube-dl-exec](https://github.com/microlinkhq/youtube-dl-exec) | yt-dlp wrapper for metadata & stream URLs |
+| [yt-search](https://github.com/nicedoc/yt-search) | YouTube search by keyword |
+| [opusscript](https://github.com/nicedoc/opusscript) | Opus audio encoding |
+| [libsodium-wrappers](https://github.com/nicedoc/libsodium.js) | Encryption for voice UDP |
+| [ffmpeg-static](https://github.com/nicedoc/ffmpeg-static) | Bundled FFmpeg binary (local dev) |
+| [dotenv](https://github.com/motdotla/dotenv) | `.env` file loading |
+
+---
+
+## 📝 Scripts
+
+| Script | Command | Description |
+|---|---|---|
+| `start` | `npm start` | Start the bot |
+| `check` | `npm run check` | Syntax-check `index.js` without running it |
+
+---
+
+## 📄 License
+
 MIT
