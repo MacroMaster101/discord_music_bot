@@ -99,9 +99,22 @@ const client = new Client({
 
 const queue = new Map();
 
-client.once('ready', () => {
+client.once('ready', async () => {
   console.log(`🎵 ${client.user.tag} is online!`);
   updatePresence();
+
+  // Reset bot nickname in all guilds to the original app name
+  for (const [, guild] of client.guilds.cache) {
+    try {
+      const me = guild.members.me || await guild.members.fetchMe();
+      if (me.nickname) {
+        await me.setNickname(null, 'Bot startup: reset nickname');
+        console.log(`Reset nickname in ${guild.name}`);
+      }
+    } catch (err) {
+      console.warn(`Could not reset nickname in ${guild.name}:`, err.message);
+    }
+  }
 });
 
 client.on('voiceStateUpdate', (oldState, newState) => {
