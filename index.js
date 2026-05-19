@@ -348,9 +348,9 @@ async function playSong(guildId, song) {
   try {
     cleanupCurrentProcess(serverQueue);
 
-    const subprocess = youtubedl.exec(song.url, {
-      output: '-',
-      format: 'bestaudio/best',
+    const audioUrlOutput = await youtubedl(song.url, {
+      getUrl: true,
+      format: 'bestaudio[ext=webm]/bestaudio/best',
       noCheckCertificates: true,
       noWarnings: true,
       noPlaylist: true,
@@ -358,19 +358,16 @@ async function playSong(guildId, song) {
       addHeader: ['referer:youtube.com', 'user-agent:googlebot'],
     });
 
-    serverQueue.currentProcess = subprocess;
+    const audioUrl = audioUrlOutput
+      .toString()
+      .split(/\r?\n/)
+      .find(Boolean);
 
-    let stderr = '';
-    subprocess.stderr?.on('data', (chunk) => {
-      stderr += chunk.toString();
-    });
+    if (!audioUrl) {
+      throw new Error('yt-dlp did not return an audio URL');
+    }
 
-    subprocess.catch((err) => {
-      const details = stderr.trim() || err.stderr || err.message || err;
-      console.error(`yt-dlp process error for ${song.url}:`, details);
-    });
-
-    const resource = createAudioResource(subprocess.stdout, {
+    const resource = createAudioResource(audioUrl, {
       inputType: StreamType.Arbitrary,
       inlineVolume: true,
       metadata: {
