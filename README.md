@@ -10,14 +10,14 @@ A powerful, self-hostable Discord music bot that streams audio from YouTube with
 |---|---|
 | 🎵 **YouTube Playback** | Play by **search query** or **direct URL** (supports `youtube.com`, `youtu.be`, `/shorts/`, `/live/`) |
 | 🎛️ **Interactive Controls** | In-chat buttons: **Play Now**, **Skip**, **Queue**, **Stop** — no need to type commands |
+| ❓ **Help Command** | Rich embed help menu (`!help`) showing all commands grouped by category with aliases |
+| 🎙️ **Rotating Status** | Bot status cycles every 15s: `!play`, `!help for commands`, and `!np · Now Playing` (changes when in voice) |
 | ⏸️ **Pause & Resume** | Pause and resume playback at any time |
 | 🔊 **Volume Control** | Adjust playback volume from 0–100% |
 | 🔂 **Loop Modes** | Loop a single song, the entire queue, or disable looping |
 | 🔀 **Shuffle** | Shuffle upcoming songs in the queue |
 | 🎧 **Now Playing Embed** | Rich embed showing current song, volume, queue size, and loop status |
 | 📋 **Queue Management** | View, reorder, remove, and clear songs in the queue |
-| 🔊 **Voice Channel Status** | The currently playing song title is shown in the voice channel's status bar |
-| 🤖 **Presence** | Bot activity shows `!play · 🔊 In voice` while connected, `!play` otherwise |
 | 🍪 **Anti-Bot Bypass** | Cookie-based auth, PO token support, and automatic player-client fallback chains |
 | 🔄 **Auto-Reconnect** | Automatically rejoins voice if the connection drops while songs remain in the queue |
 | ⏱️ **Idle Disconnect** | Leaves the voice channel after 10 seconds of an empty queue (5 s on error) |

@@ -37,6 +37,11 @@ const YTDLP_PO_TOKEN = process.env.YTDLP_PO_TOKEN;
 const VOICE_STATUS_ROUTE = (channelId) => `/channels/${channelId}/voice-status`;
 let nextSongId = 1;
 let tempCookiesPath = null;
+let presenceInVoice = false;
+let presenceIndex = 0;
+let presenceInterval = null;
+
+const PRESENCE_ROTATE_MS = 15000;
 
 // Player client fallback chains — tried in order when YouTube blocks a request
 const PLAYER_CLIENT_CHAINS = [
@@ -116,6 +121,7 @@ const queue = new Map();
 client.once('ready', async () => {
   console.log(`🎵 ${client.user.tag} is online!`);
   updatePresence();
+  startPresenceRotation();
 
   // Reset bot nickname in all guilds to the original app name
   for (const [, guild] of client.guilds.cache) {
@@ -695,14 +701,44 @@ function advanceQueue(guildId, serverQueue, delayNext, errorReason = null) {
   scheduleIdleDisconnect(guildId, serverQueue, IDLE_DISCONNECT_MS);
 }
 
+function getPresenceActivities() {
+  if (presenceInVoice) {
+    return [
+      { name: `${PREFIX}play · 🔊 In voice`, type: ActivityType.Listening },
+      { name: `${PREFIX}help for commands`, type: ActivityType.Listening },
+      { name: `${PREFIX}np · Now Playing`, type: ActivityType.Listening },
+    ];
+  }
+  return [
+    { name: `${PREFIX}play`, type: ActivityType.Listening },
+    { name: `${PREFIX}help for commands`, type: ActivityType.Listening },
+    { name: `music in your server`, type: ActivityType.Playing },
+  ];
+}
+
 function updatePresence(inVoice) {
   if (!client.user) return;
+  if (inVoice !== undefined) presenceInVoice = inVoice;
+  presenceIndex = 0;
+  applyPresence();
+}
 
-  const activityName = inVoice ? `${PREFIX}play · 🔊 In voice` : `${PREFIX}play`;
+function applyPresence() {
+  if (!client.user) return;
+  const activities = getPresenceActivities();
+  const activity = activities[presenceIndex % activities.length];
   client.user.setPresence({
-    activities: [{ name: activityName, type: ActivityType.Listening }],
+    activities: [activity],
     status: 'online',
   });
+}
+
+function startPresenceRotation() {
+  if (presenceInterval) clearInterval(presenceInterval);
+  presenceInterval = setInterval(() => {
+    presenceIndex += 1;
+    applyPresence();
+  }, PRESENCE_ROTATE_MS);
 }
 
 function cleanupCurrentProcess(serverQueue) {
