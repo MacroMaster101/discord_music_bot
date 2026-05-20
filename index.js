@@ -3,6 +3,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { startDashboardServer } = require('./server');
 
 const {
   ActionRowBuilder,
@@ -125,6 +126,13 @@ client.once('clientReady', async () => {
   console.log(`🎵 ${client.user.tag} is online!`);
   updatePresence();
   startPresenceRotation();
+
+  // Start the web dashboard and statistics API server
+  try {
+    startDashboardServer(client, queue);
+  } catch (err) {
+    console.error('Could not start Web Dashboard Server:', err);
+  }
 
   // Reset bot nickname in all guilds to the original app name
   for (const [, guild] of client.guilds.cache) {
