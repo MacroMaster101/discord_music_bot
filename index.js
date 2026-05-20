@@ -368,6 +368,16 @@ async function execute(message, serverQueue, args) {
         return;
       }
 
+      // Crucial: Await voice connection to be fully ready before starting streaming/playback
+      try {
+        await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+      } catch (voiceErr) {
+        console.error('Voice connection failed to reach Ready status:', voiceErr);
+        statusMsg.edit('❌ Voice connection timed out! Make sure the bot has proper permissions to join.');
+        teardownQueue(message.guild.id, queueConstruct, true);
+        return;
+      }
+
       queueConstruct.songs.push(song);
       
       // Clean up the status message and begin playing
@@ -768,36 +778,40 @@ function advanceQueue(guildId, serverQueue, delayNext, errorReason = null) {
 function getPresenceActivities() {
   const serverCount = client.guilds.cache.size;
 
-  if (presenceInVoice && presenceCurrentSong) {
-    // Truncate song title for Discord's status limit
-    const title = presenceCurrentSong.length > 50
-      ? presenceCurrentSong.slice(0, 47) + '...'
-      : presenceCurrentSong;
-
-    return [
-      { name: title, type: ActivityType.Listening },
-      { name: `🎶 vibes in ${serverCount} servers`, type: ActivityType.Streaming, url: 'https://www.youtube.com' },
-      { name: `${PREFIX}np · Now Playing`, type: ActivityType.Listening },
-      { name: `the queue 🎧`, type: ActivityType.Watching },
-      { name: `${PREFIX}skip · ${PREFIX}stop`, type: ActivityType.Listening },
-    ];
+  // Scan the active queue map dynamically to check if there is an active stream
+  let activeQueue = null;
+  for (const q of queue.values()) {
+    if (q.songs.length > 0 && !q.stopped) {
+      activeQueue = q;
+      break;
+    }
   }
 
-  if (presenceInVoice) {
+  if (activeQueue && activeQueue.songs[0]) {
+    const songTitle = activeQueue.songs[0].title;
+    const title = songTitle.length > 50
+      ? songTitle.slice(0, 47) + '...'
+      : songTitle;
+
+    const queueCount = activeQueue.songs.length;
+    const vol = getVolume(activeQueue);
+    const vcName = activeQueue.voiceChannel?.name || 'Voice Room';
+
     return [
-      { name: `🔊 live in voice`, type: ActivityType.Playing },
-      { name: `${PREFIX}np for now playing`, type: ActivityType.Listening },
-      { name: `the queue · ${PREFIX}q`, type: ActivityType.Watching },
+      { name: `🎶 ${title}`, type: ActivityType.Listening },
+      { name: `⚡ Vibes @ ${vol}% vol`, type: ActivityType.Streaming, url: 'https://www.youtube.com' },
+      { name: `📋 Queue | ${queueCount} track(s)`, type: ActivityType.Watching },
+      { name: `🔊 Room | ${vcName}`, type: ActivityType.Watching },
+      { name: `!np 🔎 for info`, type: ActivityType.Listening },
     ];
   }
 
   return [
-    { name: `${PREFIX}play · drop a beat`, type: ActivityType.Listening },
-    { name: `${serverCount} servers 🌐`, type: ActivityType.Watching },
-    { name: `vibes on demand 🎵`, type: ActivityType.Playing },
-    { name: `${PREFIX}help · all commands`, type: ActivityType.Listening },
-    { name: `silence... type ${PREFIX}play`, type: ActivityType.Listening },
-    { name: `the best DJ contest 🏆`, type: ActivityType.Competing },
+    { name: `!play 🎵 | Vibes on Demand`, type: ActivityType.Listening },
+    { name: `!help 📖 | Guide & Controls`, type: ActivityType.Watching },
+    { name: `🌐 ${serverCount} Guilds & Countless Beats`, type: ActivityType.Watching },
+    { name: `🎧 Pure Lo-Fi & High-Fi`, type: ActivityType.Playing },
+    { name: `🏆 The Ultimate DJ Battle`, type: ActivityType.Competing },
   ];
 }
 
@@ -812,11 +826,22 @@ function updatePresence(inVoice, songTitle) {
 
 function applyPresence() {
   if (!client.user) return;
+  
   const activities = getPresenceActivities();
   const activity = activities[presenceIndex % activities.length];
+
+  // Dynamically set status based on active rooms: dnd if streaming, online if idle
+  let hasActiveStream = false;
+  for (const q of queue.values()) {
+    if (q.songs.length > 0 && !q.stopped) {
+      hasActiveStream = true;
+      break;
+    }
+  }
+
   client.user.setPresence({
     activities: [activity],
-    status: presenceInVoice ? 'dnd' : 'online',
+    status: hasActiveStream ? 'dnd' : 'online',
   });
 }
 
