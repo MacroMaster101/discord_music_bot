@@ -15,9 +15,15 @@ primary_region = 'sin'
 [env]
   NODE_ENV = 'production'
 
-# No [http_service] — this is a Discord bot (background worker),
-# not a web application. It connects outbound to Discord's gateway.
-# Without an HTTP service, Fly.io will NOT auto-stop the machine.
+# Expose the HTTP service for the web dashboard on port 8080.
+# We set auto_stop_machines to 'off' so Fly.io never halts the bot when idle,
+# ensuring it remains active 24/7 in Discord voice channels.
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
 
 # Restart the bot automatically if it crashes
 [restart]
