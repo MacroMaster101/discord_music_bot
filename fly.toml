@@ -1,10 +1,7 @@
-# J4FN Music Bot — Fly.io Configuration
+# fly.toml app configuration file generated for discord-music-bot-lukt4g on 2026-05-20T20:07:22Z
 #
-# Setup:    fly apps create <your-app-name>
-# Secrets:  fly secrets set TOKEN=your_discord_token PREFIX=!
-# Deploy:   fly deploy
-# Logs:     fly logs
-# Status:   fly status
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
 app = 'discord-music-bot-lukt4g'
 primary_region = 'sin'
@@ -18,6 +15,7 @@ primary_region = 'sin'
 # Expose the HTTP service for the web dashboard on port 8080.
 # We set auto_stop_machines to 'off' so Fly.io never halts the bot when idle,
 # ensuring it remains active 24/7 in Discord voice channels.
+
 [http_service]
   internal_port = 8080
   force_https = true
@@ -26,6 +24,7 @@ primary_region = 'sin'
   min_machines_running = 1
 
 # Restart the bot automatically if it crashes
+
 [restart]
   policy = 'always'
   max_retries = 5
@@ -33,4 +32,6 @@ primary_region = 'sin'
 [[vm]]
   cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 512
+  memory_mb = 1024
+  memory = '1gb'
+  size = 'shared-cpu-1x'
