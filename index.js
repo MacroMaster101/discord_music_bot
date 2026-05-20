@@ -40,10 +40,11 @@ const VOICE_STATUS_ROUTE = (channelId) => `/channels/${channelId}/voice-status`;
 let nextSongId = 1;
 let tempCookiesPath = null;
 let presenceInVoice = false;
+let presenceCurrentSong = null;
 let presenceIndex = 0;
 let presenceInterval = null;
 
-const PRESENCE_ROTATE_MS = 15000;
+const PRESENCE_ROTATE_MS = 12000;
 
 // Player client fallback chains — tried in order when YouTube blocks a request
 const PLAYER_CLIENT_CHAINS = [
@@ -566,7 +567,7 @@ async function playSong(guildId, song) {
     
     resource.volume?.setVolume(0.5);
     serverQueue.player.play(resource);
-    updatePresence(true);
+    updatePresence(true, song.title);
     setVoiceChannelStatus(serverQueue.voiceChannel.id, `🎵 ${song.title}`);
     serverQueue.textChannel.send({
       content: `▶️ Now playing: **${song.title}**`,
@@ -715,23 +716,46 @@ function advanceQueue(guildId, serverQueue, delayNext, errorReason = null) {
 }
 
 function getPresenceActivities() {
-  if (presenceInVoice) {
+  const serverCount = client.guilds.cache.size;
+
+  if (presenceInVoice && presenceCurrentSong) {
+    // Truncate song title for Discord's status limit
+    const title = presenceCurrentSong.length > 50
+      ? presenceCurrentSong.slice(0, 47) + '...'
+      : presenceCurrentSong;
+
     return [
-      { name: `${PREFIX}play · 🔊 In voice`, type: ActivityType.Listening },
-      { name: `${PREFIX}help for commands`, type: ActivityType.Listening },
+      { name: title, type: ActivityType.Listening },
+      { name: `🎶 vibes in ${serverCount} servers`, type: ActivityType.Streaming, url: 'https://www.youtube.com' },
       { name: `${PREFIX}np · Now Playing`, type: ActivityType.Listening },
+      { name: `the queue 🎧`, type: ActivityType.Watching },
+      { name: `${PREFIX}skip · ${PREFIX}stop`, type: ActivityType.Listening },
     ];
   }
+
+  if (presenceInVoice) {
+    return [
+      { name: `🔊 live in voice`, type: ActivityType.Playing },
+      { name: `${PREFIX}np for now playing`, type: ActivityType.Listening },
+      { name: `the queue · ${PREFIX}q`, type: ActivityType.Watching },
+    ];
+  }
+
   return [
-    { name: `${PREFIX}play`, type: ActivityType.Listening },
-    { name: `${PREFIX}help for commands`, type: ActivityType.Listening },
-    { name: `music in your server`, type: ActivityType.Playing },
+    { name: `${PREFIX}play · drop a beat`, type: ActivityType.Listening },
+    { name: `${serverCount} servers 🌐`, type: ActivityType.Watching },
+    { name: `vibes on demand 🎵`, type: ActivityType.Playing },
+    { name: `${PREFIX}help · all commands`, type: ActivityType.Listening },
+    { name: `silence... type ${PREFIX}play`, type: ActivityType.Listening },
+    { name: `the best DJ contest 🏆`, type: ActivityType.Competing },
   ];
 }
 
-function updatePresence(inVoice) {
+function updatePresence(inVoice, songTitle) {
   if (!client.user) return;
   if (typeof inVoice === 'boolean') presenceInVoice = inVoice;
+  if (songTitle !== undefined) presenceCurrentSong = songTitle;
+  if (inVoice === false) presenceCurrentSong = null;
   presenceIndex = 0;
   applyPresence();
 }
@@ -742,7 +766,7 @@ function applyPresence() {
   const activity = activities[presenceIndex % activities.length];
   client.user.setPresence({
     activities: [activity],
-    status: 'online',
+    status: presenceInVoice ? 'dnd' : 'online',
   });
 }
 
