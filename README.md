@@ -8,6 +8,7 @@ A powerful, self-hostable Discord music bot that streams audio from YouTube with
 
 | Category | Details |
 |---|---|
+| 📊 **Web Dashboard** | Premium dark-mode status page featuring live-ticking uptime, system specs, RAM usage against the 512MB VM limit, and rotating vinyl card animations for active DJ playbacks! |
 | 🎵 **YouTube Playback** | Play by **search query** or **direct URL** (supports `youtube.com`, `youtu.be`, `/shorts/`, `/live/`) |
 | 🎛️ **Interactive Controls** | In-chat buttons: **Play Now**, **Skip**, **Queue**, **Stop** — no need to type commands |
 | ❓ **Help Command** | Rich embed help menu (`!help`) showing all commands grouped by category with aliases |
@@ -197,7 +198,7 @@ fly deploy
 fly logs
 ```
 
-> **Note:** The bot is configured as a background worker (no HTTP service) so Fly.io won't auto-stop it. The `[restart]` policy in `fly.toml` ensures the bot recovers from crashes automatically.
+> **Note:** The bot exposes an HTTP service on port `8080` for the live web dashboard. By setting `auto_stop_machines = 'off'` in `fly.toml`, Fly.io is instructed to keep the bot active **24/7**, ensuring it stays responsive and stays in voice channels regardless of web page traffic.
 
 ### Local
 
@@ -213,7 +214,8 @@ Keep the terminal (or your PC) running. The bot stays online as long as the proc
 
 ```
 discord_music_bot/
-├── index.js            # Bot logic (commands, playback, queue, controls)
+├── index.js            # Bot core (commands, playback, queue, controls)
+├── server.js           # Native HTTP server, stats API, and dashboard web interface
 ├── package.json        # Dependencies & scripts
 ├── Dockerfile          # Docker container definition
 ├── fly.toml            # Fly.io deployment configuration
