@@ -121,7 +121,7 @@ const client = new Client({
 
 const queue = new Map();
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
   console.log(`🎵 ${client.user.tag} is online!`);
   updatePresence();
   startPresenceRotation();
