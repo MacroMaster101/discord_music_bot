@@ -22,6 +22,8 @@ const {
   NoSubscriberBehavior,
   getVoiceConnection,
   StreamType,
+  VoiceConnectionStatus,
+  entersState,
 } = require('@discordjs/voice');
 
 const ytSearch = require('yt-search');
@@ -143,7 +145,7 @@ client.on('voiceStateUpdate', (oldState, newState) => {
     const serverQueue = queue.get(oldState.guild.id);
     if (serverQueue && !serverQueue.stopped) {
       console.log('🔴 Bot was disconnected, stopping playback');
-      teardownQueue(oldState.guild.id, serverQueue, false);
+      teardownQueue(oldState.guild.id, serverQueue, true);
     }
   }
 });
@@ -304,14 +306,28 @@ async function execute(message, serverQueue, args) {
         message.channel.send('❌ Voice connection error! Trying to reconnect...');
       });
 
-      connection.on('stateChange', (oldState, newState) => {
+      connection.on('stateChange', async (oldState, newState) => {
         console.log(`Connection state: ${oldState.status} -> ${newState.status}`);
-        if (newState.status === 'disconnected') {
-          // Only reconnect if queue still exists (not manually disconnected)
-          const serverQueue = queue.get(message.guild.id);
-          if (serverQueue && serverQueue.songs.length > 0) {
-            console.log('Reconnecting...');
-            setTimeout(() => connection.rejoin(), 500);
+        if (newState.status === VoiceConnectionStatus.Disconnected) {
+          try {
+            // Wait up to 5 seconds for the connection to recover on its own
+            // (e.g., bot moved to another channel — it will auto-reconnect)
+            await Promise.race([
+              entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
+              entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
+            ]);
+            console.log('🔄 Voice connection recovering...');
+          } catch {
+            // Real disconnect — connection did not recover within 5 seconds
+            const currentQueue = queue.get(message.guild.id);
+            if (currentQueue && !currentQueue.stopped) {
+              console.log('🔴 Voice connection lost, stopping playback');
+              currentQueue.textChannel.send('❌ Lost connection to voice channel. Stopping playback.');
+              teardownQueue(message.guild.id, currentQueue, true);
+            } else {
+              // Queue already cleaned up, just destroy the connection
+              try { connection.destroy(); } catch {}
+            }
           }
         }
       });
