@@ -141,7 +141,7 @@ client.on('voiceStateUpdate', (oldState, newState) => {
   // Check if bot was disconnected by someone
   if (oldState.id === client.user?.id && oldState.channelId && !newState.channelId) {
     const serverQueue = queue.get(oldState.guild.id);
-    if (serverQueue) {
+    if (serverQueue && !serverQueue.stopped) {
       console.log('🔴 Bot was disconnected, stopping playback');
       teardownQueue(oldState.guild.id, serverQueue, false);
     }
@@ -203,10 +203,7 @@ client.on('interactionCreate', async (interaction) => {
 
   if (interaction.customId === 'music_stop') {
     stopQueue(interaction.guild.id, serverQueue);
-    await interaction.update({
-      components: [createMusicControls(null, { disabled: true })],
-    });
-    return interaction.followUp('⏹️ Stopped!');
+    return interaction.reply('⏹️ Stopped!');
   }
 
   if (interaction.customId === 'music_queue') {
@@ -686,7 +683,7 @@ function advanceQueue(guildId, serverQueue, delayNext, errorReason = null) {
 
   serverQueue.currentSongId = null;
   serverQueue.advancingSongId = null;
-  updatePresence();
+  updatePresence(false);
   setVoiceChannelStatus(serverQueue.voiceChannel.id, '');
 
   if (errorReason) {
@@ -718,7 +715,7 @@ function getPresenceActivities() {
 
 function updatePresence(inVoice) {
   if (!client.user) return;
-  if (inVoice !== undefined) presenceInVoice = inVoice;
+  if (typeof inVoice === 'boolean') presenceInVoice = inVoice;
   presenceIndex = 0;
   applyPresence();
 }
@@ -793,6 +790,7 @@ function stopQueue(guildId, serverQueue) {
 }
 
 function teardownQueue(guildId, serverQueue, destroyConnection) {
+  if (serverQueue.stopped) return;
   serverQueue.stopped = true;
   serverQueue.songs = [];
   serverQueue.currentSongId = null;
@@ -801,14 +799,16 @@ function teardownQueue(guildId, serverQueue, destroyConnection) {
   cleanupCurrentProcess(serverQueue);
   serverQueue.player.stop(true);
 
+  // Delete queue entry BEFORE destroying connection to prevent
+  // voiceStateUpdate handler from triggering a second teardown
+  queue.delete(guildId);
+  updatePresence(false);
+  setVoiceChannelStatus(serverQueue.voiceChannel.id, '');
+
   if (destroyConnection) {
     const conn = getVoiceConnection(guildId);
     if (conn) conn.destroy();
   }
-
-  queue.delete(guildId);
-  updatePresence();
-  setVoiceChannelStatus(serverQueue.voiceChannel.id, '');
 }
 
 function showQueue(message, serverQueue) {
