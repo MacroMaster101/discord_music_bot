@@ -86,6 +86,8 @@ function getYtdlpBaseOptions(playerClientOverride) {
     noWarnings: true,
     noPlaylist: true,
     preferFreeFormats: true,
+    youtubeSkipDashManifest: true,
+    noCheckFormats: true,
     addHeader: [
       'referer:https://www.youtube.com/',
       'user-agent:Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Safari/605.1.15',
@@ -122,7 +124,7 @@ const client = new Client({
 
 const queue = new Map();
 
-client.once('clientReady', async () => {
+client.once('ready', async () => {
   console.log(`🎵 ${client.user.tag} is online!`);
   updatePresence();
   startPresenceRotation();
@@ -256,28 +258,7 @@ async function execute(message, serverQueue, args) {
   if (!voiceChannel) return message.reply('❌ You need to be in a voice channel!');
   if (!args.length) return message.reply(`Usage: \`${PREFIX}play <song name or URL>\``);
 
-  let song;
   const searchText = args.join(' ');
-
-  try {
-    // Check if URL or search
-    if (isUrl(searchText)) {
-      song = await getSongFromUrl(searchText);
-    } else {
-      const searchResult = await ytSearch(searchText);
-      const video = searchResult.videos[0];
-      if (!video) return message.reply('❌ No results found!');
-      song = {
-        id: createSongId(),
-        title: video.title,
-        url: video.url,
-        streamUrl: null,
-      };
-    }
-  } catch (err) {
-    console.error('Search error:', err);
-    return message.reply('❌ Could not find that song!');
-  }
 
   if (!serverQueue) {
     const queueConstruct = {
@@ -293,21 +274,25 @@ async function execute(message, serverQueue, args) {
       player: createAudioPlayer({
         behaviors: { noSubscriber: NoSubscriberBehavior.Play },
       }),
-      songs: [song],
+      songs: [], // Start empty for immediate VC join
     };
 
     queue.set(message.guild.id, queueConstruct);
 
     try {
+      // Start voice connection instantly to avoid REST API reply latency
       const connection = joinVoiceChannel({
         channelId: voiceChannel.id,
         guildId: message.guild.id,
         adapterCreator: message.guild.voiceAdapterCreator,
-        selfDeaf: false,
+        selfDeaf: true,
         selfMute: false,
       });
 
       queueConstruct.connection = connection;
+
+      // Provide instant feedback in chat while searching metadata in parallel
+      const statusMsg = await message.reply('🔍 **Joining voice channel and searching...**');
       
       // Handle connection errors
       connection.on('error', (error) => {
@@ -319,22 +304,18 @@ async function execute(message, serverQueue, args) {
         console.log(`Connection state: ${oldState.status} -> ${newState.status}`);
         if (newState.status === VoiceConnectionStatus.Disconnected) {
           try {
-            // Wait up to 5 seconds for the connection to recover on its own
-            // (e.g., bot moved to another channel — it will auto-reconnect)
             await Promise.race([
               entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
               entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
             ]);
             console.log('🔄 Voice connection recovering...');
           } catch {
-            // Real disconnect — connection did not recover within 5 seconds
             const currentQueue = queue.get(message.guild.id);
             if (currentQueue && !currentQueue.stopped) {
               console.log('🔴 Voice connection lost, stopping playback');
               currentQueue.textChannel.send('❌ Lost connection to voice channel. Stopping playback.');
               teardownQueue(message.guild.id, currentQueue, true);
             } else {
-              // Queue already cleaned up, just destroy the connection
               try { connection.destroy(); } catch {}
             }
           }
@@ -360,27 +341,88 @@ async function execute(message, serverQueue, args) {
         advanceQueue(message.guild.id, queueConstruct, true);
       });
 
+      // Fetch the song metadata in the background while in the voice channel
+      let song;
+      try {
+        if (isUrl(searchText)) {
+          song = await getSongFromUrl(searchText);
+        } else {
+          const searchResult = await ytSearch(searchText);
+          const video = searchResult.videos[0];
+          if (!video) {
+            statusMsg.edit('❌ No results found!');
+            teardownQueue(message.guild.id, queueConstruct, true);
+            return;
+          }
+          song = {
+            id: createSongId(),
+            title: video.title,
+            url: video.url,
+            streamUrl: null,
+          };
+        }
+      } catch (err) {
+        console.error('Search error:', err);
+        statusMsg.edit('❌ Could not resolve song metadata!');
+        teardownQueue(message.guild.id, queueConstruct, true);
+        return;
+      }
+
+      queueConstruct.songs.push(song);
+      
+      // Clean up the status message and begin playing
+      try { await statusMsg.delete(); } catch {}
       await playSong(message.guild.id, song);
+
     } catch (err) {
       console.error('Connection error:', err);
       queue.delete(message.guild.id);
       return message.reply('❌ Could not join voice channel! Make sure the bot has proper permissions.');
     }
   } else {
+    // Already in voice channel: search and append to queue
     serverQueue.stopped = false;
     clearIdleDisconnect(serverQueue);
 
-    const shouldStartNow = serverQueue.songs.length === 0;
-    serverQueue.songs.push(song);
-    if (shouldStartNow) {
-      await playSong(message.guild.id, song);
+    const statusMsg = await message.reply('🔍 **Searching for song...**');
+
+    let song;
+    try {
+      if (isUrl(searchText)) {
+        song = await getSongFromUrl(searchText);
+      } else {
+        const searchResult = await ytSearch(searchText);
+        const video = searchResult.videos[0];
+        if (!video) {
+          statusMsg.edit('❌ No results found!');
+          return;
+        }
+        song = {
+          id: createSongId(),
+          title: video.title,
+          url: video.url,
+          streamUrl: null,
+        };
+      }
+    } catch (err) {
+      console.error('Search error:', err);
+      statusMsg.edit('❌ Could not resolve song metadata!');
       return;
     }
 
-    return message.reply({
-      content: `➕ Added to queue: **${song.title}**`,
-      components: [createMusicControls(song.id)],
-    });
+    const shouldStartNow = serverQueue.songs.length === 0;
+    serverQueue.songs.push(song);
+
+    try { await statusMsg.delete(); } catch {}
+
+    if (shouldStartNow) {
+      await playSong(message.guild.id, song);
+    } else {
+      return message.reply({
+        content: `➕ Added to queue: **${song.title}**`,
+        components: [createMusicControls(song.id)],
+      });
+    }
   }
 }
 
