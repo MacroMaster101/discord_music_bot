@@ -107,7 +107,7 @@ cp .env.example .env
 | `TOKEN` | ✅ | Discord bot token (also reads `DISCORD_TOKEN` / `BOT_TOKEN`) |
 | `PREFIX` | — | Command prefix (default: `!`) |
 | `YTDLP_COOKIES_PATH` | — | Path to a Netscape-format `cookies.txt` file |
-| `YTDLP_COOKIES_BASE64` | — | Base64-encoded cookies (great for cloud hosts like Railway) |
+| `YTDLP_COOKIES_BASE64` | — | Base64-encoded cookies (great for cloud hosts like Fly.io) |
 | `YTDLP_PO_TOKEN` | — | YouTube Proof-of-Origin token (advanced, see [yt-dlp docs](https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide)) |
 
 ### Run
@@ -131,7 +131,7 @@ If YouTube starts blocking playback with _"Sign in to confirm you're not a bot"_
 | **File path** | Save as `cookies.txt` and set `YTDLP_COOKIES_PATH=./cookies.txt` in `.env` |
 | **Base64** | Encode the file (`base64 cookies.txt`) and set `YTDLP_COOKIES_BASE64=<encoded>` in `.env` |
 
-> **Tip:** Base64 is recommended for cloud platforms (Railway, Render) where you can't upload files easily — just paste the value into the environment variable dashboard.
+> **Tip:** Base64 is recommended for cloud platforms (Fly.io, Render) where you can't upload files easily — just set it as a secret: `fly secrets set YTDLP_COOKIES_BASE64=<encoded>`.
 
 ---
 
@@ -168,12 +168,36 @@ The Dockerfile:
 - Installs **FFmpeg** and **Python 3** (needed by yt-dlp)
 - Automatically upgrades the bundled **yt-dlp** binary to the latest version on build
 
-### Railway / Render / Nixpacks
+### Fly.io (Recommended)
 
-1. Push the code to GitHub.
-2. Connect your hosting provider to the repo.
-3. Add environment variables (`TOKEN`, `PREFIX`, `YTDLP_COOKIES_BASE64`).
-4. Deploy — the included `nixpacks.toml` ensures **Node.js 22**, **Python 3**, and **FFmpeg** are available.
+1. Install the [Fly CLI](https://fly.io/docs/flyctl/install/) and log in:
+
+```bash
+fly auth login
+```
+
+2. Set your secrets:
+
+```bash
+fly secrets set TOKEN=your_discord_bot_token
+fly secrets set PREFIX=!
+# Optional: YouTube cookies
+fly secrets set YTDLP_COOKIES_BASE64=your_base64_cookies
+```
+
+3. Deploy:
+
+```bash
+fly deploy
+```
+
+4. Check logs:
+
+```bash
+fly logs
+```
+
+> **Note:** The bot is configured as a background worker (no HTTP service) so Fly.io won't auto-stop it. The `[restart]` policy in `fly.toml` ensures the bot recovers from crashes automatically.
 
 ### Local
 
@@ -192,7 +216,7 @@ discord_music_bot/
 ├── index.js            # Bot logic (commands, playback, queue, controls)
 ├── package.json        # Dependencies & scripts
 ├── Dockerfile          # Docker container definition
-├── nixpacks.toml       # Nixpacks build config (Railway, etc.)
+├── fly.toml            # Fly.io deployment configuration
 ├── .env.example        # Environment variable template
 ├── .gitignore          # Git ignore rules
 └── .dockerignore       # Docker ignore rules

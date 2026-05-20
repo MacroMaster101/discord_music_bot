@@ -7,3 +7,5 @@ npm-debug.log
 *.zip
 cookies.txt
 cookies_base64.txt
+fly.toml
+README.md

@@ -1,23 +1,30 @@
-# fly.toml app configuration file generated for discord-music-bot-lukt4g on 2026-05-20T19:14:20Z
+# J4FN Music Bot — Fly.io Configuration
 #
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
+# Setup:    fly apps create <your-app-name>
+# Secrets:  fly secrets set TOKEN=your_discord_token PREFIX=!
+# Deploy:   fly deploy
+# Logs:     fly logs
+# Status:   fly status
 
 app = 'discord-music-bot-lukt4g'
 primary_region = 'sin'
 
 [build]
+  # Uses the Dockerfile in the project root
 
-[http_service]
-  internal_port = 8080
-  force_https = true
-  auto_stop_machines = 'stop'
-  auto_start_machines = true
-  min_machines_running = 0
-  processes = ['app']
+[env]
+  NODE_ENV = 'production'
+
+# No [http_service] — this is a Discord bot (background worker),
+# not a web application. It connects outbound to Discord's gateway.
+# Without an HTTP service, Fly.io will NOT auto-stop the machine.
+
+# Restart the bot automatically if it crashes
+[restart]
+  policy = 'always'
+  max_retries = 5
 
 [[vm]]
-  memory = '1gb'
   cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 256
+  memory_mb = 512
