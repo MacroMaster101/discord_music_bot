@@ -8,21 +8,29 @@ A powerful, self-hostable Discord music bot that streams audio from YouTube with
 
 | Category | Details |
 |---|---|
-| 📊 **Web Dashboard** | Premium dark-mode status page featuring live-ticking uptime, system specs, RAM usage against the 512MB VM limit, and rotating vinyl card animations for active DJ playbacks! |
+| 📊 **Web Dashboard** | Premium dark-mode status page featuring live-ticking uptime, system specs, RAM usage against the 2 GB VM limit, rotating vinyl card animations for active DJ playbacks, and an admin settings modal for real-time configuration |
 | 🎵 **YouTube Playback** | Play by **search query** or **direct URL** (supports `youtube.com`, `youtu.be`, `/shorts/`, `/live/`) |
+| 🔍 **Interactive Search** | `!search` picks the top 5 YouTube results and lets the user choose via buttons |
+| 📂 **Playlist Support** | `!playlist` queues every video from a YouTube playlist in one go |
+| 🎤 **Lyrics Lookup** | `!lyrics` fetches and displays lyrics for the current or any requested song |
+| ⏩ **Seek** | `!seek 1:30` jumps to any position in the current track |
 | 🎛️ **Interactive Controls** | In-chat buttons: **Play Now**, **Skip**, **Queue**, **Stop** — no need to type commands |
+| 📋 **Queue Picker** | A select-menu on queue messages lets you **Play Now**, **Move to Top**, or **Remove** any song |
 | ❓ **Help Command** | Rich embed help menu (`!help`) showing all commands grouped by category with aliases |
-| 🎙️ **Rotating Status** | Bot status cycles every 15s: `!play`, `!help for commands`, and `!np · Now Playing` (changes when in voice) |
+| 🎙️ **Rotating Status** | Bot status cycles every 12s between idle prompts (`!play`, `!help`, `💿 Spinning Virtual Vinyl`, `🎤 Ready to Drop the Bass`, `🏆 The Ultimate DJ Battle`) and live playback info (`🎶 Now Playing`, `📋 Queue`, `🔊 Room`, `🔥 Dropping Beats`, `!np`) when in voice |
 | ⏸️ **Pause & Resume** | Pause and resume playback at any time |
 | 🔊 **Volume Control** | Adjust playback volume from 0–100% |
 | 🔂 **Loop Modes** | Loop a single song, the entire queue, or disable looping |
 | 🔀 **Shuffle** | Shuffle upcoming songs in the queue |
-| 🎧 **Now Playing Embed** | Rich embed showing current song, volume, queue size, and loop status |
+| 🎧 **Now Playing Embed** | Rich embed with a live-updating progress bar, current song, volume, queue size, and loop status |
 | 📋 **Queue Management** | View, reorder, remove, and clear songs in the queue |
+| ⚙️ **Per-Guild Settings** | Customise prefix, default volume, idle timers, and auto-pause per server — editable via the web dashboard |
 | 🍪 **Anti-Bot Bypass** | Cookie-based auth, PO token support, and automatic player-client fallback chains |
 | 🔄 **Auto-Reconnect** | Automatically rejoins voice if the connection drops while songs remain in the queue |
-| ⏱️ **Idle Disconnect** | Leaves the voice channel after 10 seconds of an empty queue (5 s on error) |
+| ⏱️ **Idle Disconnect** | Leaves the voice channel after a configurable delay when the queue empties (default 10 s; 5 s on error) |
+| 👻 **Empty VC Disconnect** | Auto-pauses and disconnects when no humans are left in the voice channel (configurable, default 60 s) |
 | 🏷️ **Nickname Reset** | Resets the bot's server nickname to the application default on every startup |
+| 🎙️ **Voice Channel Status** | Sets the voice channel's status text to the currently playing song |
 
 ---
 
@@ -35,11 +43,15 @@ All commands use the configurable prefix (default: `!`). Aliases are shown in pa
 | Command | Alias | Description |
 |---|---|---|
 | `!play <song name or URL>` | `!p` | Play a song or add it to the queue |
+| `!search <query>` | `!sr` | Search YouTube and pick from the top 5 results |
+| `!playlist <URL>` | `!pl` | Queue every song from a YouTube playlist |
 | `!pause` | — | Pause the current song |
 | `!resume` | `!unpause` | Resume playback |
 | `!skip` | `!s` | Skip to the next song |
+| `!seek <time>` | — | Jump to a position (e.g. `1:30`, `90`) |
 | `!stop` | `!dc`, `!disconnect` | Stop playback, clear the queue, and disconnect |
 | `!nowplaying` | `!np` | Show the current song in a rich embed |
+| `!lyrics` | `!ly` | Show lyrics for the current (or specified) song |
 
 ### 📋 Queue
 
@@ -72,6 +84,12 @@ Every "Now Playing" and "Added to Queue" message includes interactive buttons:
 - **Skip** — Skip the current song
 - **Queue** — View the queue (shown ephemerally, only visible to you)
 - **Stop** — Stop playback and disconnect
+
+The queue view also features a **select-menu picker** where you can choose a song and then:
+
+- **▶️ Play Now** — Jump to that song immediately
+- **⏫ Move to Top** — Bump it to the next position
+- **🗑️ Remove** — Remove it from the queue
 
 ---
 
@@ -107,6 +125,7 @@ cp .env.example .env
 |---|---|---|
 | `TOKEN` | ✅ | Discord bot token (also reads `DISCORD_TOKEN` / `BOT_TOKEN`) |
 | `PREFIX` | — | Command prefix (default: `!`) |
+| `ADMIN_TOKEN` | — | Secret token required to edit bot settings via the web dashboard |
 | `YTDLP_COOKIES_PATH` | — | Path to a Netscape-format `cookies.txt` file |
 | `YTDLP_COOKIES_BASE64` | — | Base64-encoded cookies (great for cloud hosts like Fly.io) |
 | `YTDLP_PO_TOKEN` | — | YouTube Proof-of-Origin token (advanced, see [yt-dlp docs](https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide)) |
@@ -160,6 +179,7 @@ docker build -t j4fn-music .
 docker run -d --name j4fn-music \
   -e TOKEN=your_discord_bot_token \
   -e PREFIX=! \
+  -e ADMIN_TOKEN=your_secret_admin_token \
   -e YTDLP_COOKIES_BASE64=your_base64_cookies \
   j4fn-music
 ```
@@ -182,6 +202,7 @@ fly auth login
 ```bash
 fly secrets set TOKEN=your_discord_bot_token
 fly secrets set PREFIX=!
+fly secrets set ADMIN_TOKEN=your_secret_admin_token
 # Optional: YouTube cookies
 fly secrets set YTDLP_COOKIES_BASE64=your_base64_cookies
 ```
@@ -214,8 +235,9 @@ Keep the terminal (or your PC) running. The bot stays online as long as the proc
 
 ```
 discord_music_bot/
-├── index.js            # Bot core (commands, playback, queue, controls)
+├── index.js            # Bot core (commands, playback, queue, controls, presence)
 ├── server.js           # Native HTTP server, stats API, and dashboard web interface
+├── settings.js         # Per-guild and global settings with persistent JSON storage
 ├── package.json        # Dependencies & scripts
 ├── Dockerfile          # Docker container definition
 ├── fly.toml            # Fly.io deployment configuration

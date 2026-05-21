@@ -1098,7 +1098,6 @@ function advanceQueue(guildId, serverQueue, delayNext, errorReason = null) {
 }
 
 function getPresenceActivities() {
-  const serverCount = client.guilds.cache.size;
 
   // Scan the active queue map dynamically to check if there is an active stream
   let activeQueue = null;
@@ -1116,7 +1115,6 @@ function getPresenceActivities() {
       : songTitle;
 
     const queueCount = activeQueue.songs.length;
-    const vol = getVolume(activeQueue);
     const vcName = activeQueue.voiceChannel?.name || 'Voice Room';
 
     return [
