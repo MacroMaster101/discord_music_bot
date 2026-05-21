@@ -4,6 +4,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { startDashboardServer } = require('./server');
+const settings = require('./settings');
+
+settings.load();
 
 const {
   ActionRowBuilder,
@@ -44,10 +47,14 @@ function logCommand(entry) {
   if (stats.commandLog.length > 20) stats.commandLog.pop();
 }
 
-const PREFIX = '!';
 const TOKEN = process.env.TOKEN || process.env.DISCORD_TOKEN || process.env.BOT_TOKEN;
-const IDLE_DISCONNECT_MS = 10000;
 const ERROR_DISCONNECT_MS = 5000;
+
+function getPrefix(guildId) { return settings.get(guildId, 'prefix'); }
+function getIdleDisconnectMs(guildId) { return settings.get(guildId, 'idleDisconnectSeconds') * 1000; }
+function getEmptyVcDisconnectMs(guildId) { return settings.get(guildId, 'emptyVcDisconnectSeconds') * 1000; }
+function getDefaultVolume(guildId) { return settings.get(guildId, 'defaultVolume'); }
+function getAutoPauseWhenAlone(guildId) { return settings.get(guildId, 'autoPauseWhenAlone'); }
 const YTDLP_COOKIES_PATH = process.env.YTDLP_COOKIES_PATH || process.env.YTDLP_COOKIES;
 const YTDLP_COOKIES_BASE64 = process.env.YTDLP_COOKIES_BASE64;
 const YTDLP_PO_TOKEN = process.env.YTDLP_PO_TOKEN;
@@ -166,18 +173,84 @@ client.once('ready', async () => {
 });
 
 client.on('voiceStateUpdate', (oldState, newState) => {
-  // Check if bot was disconnected by someone
+  const guild = newState.guild || oldState.guild;
+  const guildId = guild.id;
+
+  // Bot was disconnected externally
   if (oldState.id === client.user?.id && oldState.channelId && !newState.channelId) {
-    const serverQueue = queue.get(oldState.guild.id);
+    const serverQueue = queue.get(guildId);
     if (serverQueue && !serverQueue.stopped) {
       console.log('🔴 Bot was disconnected, stopping playback');
-      teardownQueue(oldState.guild.id, serverQueue, true);
+      teardownQueue(guildId, serverQueue, true);
     }
+    return;
   }
+
+  // Re-evaluate the "alone in VC" state on any relevant change
+  const serverQueue = queue.get(guildId);
+  if (!serverQueue) return;
+  reevaluateLoneliness(guildId, serverQueue);
 });
 
+function countHumansInVc(voiceChannel) {
+  if (!voiceChannel?.members) return 0;
+  let n = 0;
+  for (const m of voiceChannel.members.values()) {
+    if (!m.user.bot) n++;
+  }
+  return n;
+}
+
+function reevaluateLoneliness(guildId, serverQueue) {
+  const vc = serverQueue.voiceChannel;
+  // Refresh from cache so we see real membership (oldState/newState already applied)
+  const liveVc = vc.guild.channels.cache.get(vc.id) || vc;
+  const humans = countHumansInVc(liveVc);
+
+  if (humans === 0) {
+    // Pause playback if configured and not already paused
+    if (getAutoPauseWhenAlone(guildId)
+        && serverQueue.player.state.status === AudioPlayerStatus.Playing) {
+      serverQueue.player.pause();
+      serverQueue.wasAutoPaused = true;
+      console.log(`⏸️ Auto-paused in ${liveVc.name} (empty VC)`);
+    }
+    // Schedule disconnect
+    if (!serverQueue.emptyVcTimeout) {
+      const ms = getEmptyVcDisconnectMs(guildId);
+      console.log(`⏳ Empty VC, disconnecting in ${ms / 1000}s`);
+      serverQueue.emptyVcTimeout = setTimeout(() => {
+        const q = queue.get(guildId);
+        if (!q) return;
+        const stillEmpty = countHumansInVc(
+          q.voiceChannel.guild.channels.cache.get(q.voiceChannel.id) || q.voiceChannel
+        ) === 0;
+        if (stillEmpty) {
+          console.log('🔴 Disconnecting after empty VC timeout');
+          q.textChannel.send('👋 Nobody in voice channel, leaving.').catch(() => {});
+          teardownQueue(guildId, q, true);
+        }
+      }, ms);
+    }
+  } else {
+    // Someone (re-)joined
+    if (serverQueue.emptyVcTimeout) {
+      clearTimeout(serverQueue.emptyVcTimeout);
+      serverQueue.emptyVcTimeout = null;
+    }
+    if (serverQueue.wasAutoPaused
+        && serverQueue.player.state.status === AudioPlayerStatus.Paused) {
+      serverQueue.player.unpause();
+      console.log('▶️ Auto-resumed (humans returned)');
+    }
+    serverQueue.wasAutoPaused = false;
+  }
+}
+
 client.on('messageCreate', async (message) => {
-  if (message.author.bot || !message.guild || !message.content.startsWith(PREFIX)) return;
+  if (message.author.bot || !message.guild) return;
+  const PREFIX = getPrefix(message.guild.id);
+  if (!message.content.startsWith(PREFIX)) return;
 
   const args = message.content.slice(PREFIX.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
@@ -321,6 +394,7 @@ client.on('interactionCreate', async (interaction) => {
 
 async function execute(message, serverQueue, args) {
   const voiceChannel = message.member?.voice?.channel;
+  const PREFIX = getPrefix(message.guild.id);
   if (!voiceChannel) return message.reply('❌ You need to be in a voice channel!');
   if (!args.length) return message.reply(`Usage: \`${PREFIX}play <song name or URL>\``);
 
@@ -724,7 +798,9 @@ async function playSong(guildId, song, seekSeconds = 0) {
       },
     });
     
-    resource.volume?.setVolume(0.5);
+    const vol = serverQueue.targetVolume ?? (getDefaultVolume(guildId) / 100);
+    serverQueue.targetVolume = vol;
+    resource.volume?.setVolume(vol);
     serverQueue.player.play(resource);
     updatePresence(true, song.title);
     setVoiceChannelStatus(serverQueue.voiceChannel.id, `🎵 ${song.title}`);
@@ -877,7 +953,7 @@ function advanceQueue(guildId, serverQueue, delayNext, errorReason = null) {
 
   console.log('✅ Queue empty, disconnecting soon');
   serverQueue.textChannel.send('✅ Queue finished! Disconnecting in 10 seconds unless you add another song.');
-  scheduleIdleDisconnect(guildId, serverQueue, IDLE_DISCONNECT_MS);
+  scheduleIdleDisconnect(guildId, serverQueue, getIdleDisconnectMs(guildId));
 }
 
 function getPresenceActivities() {
@@ -970,7 +1046,8 @@ function cleanupCurrentProcess(serverQueue) {
   }
 }
 
-function scheduleIdleDisconnect(guildId, serverQueue, delayMs = IDLE_DISCONNECT_MS) {
+function scheduleIdleDisconnect(guildId, serverQueue, delayMs) {
+  if (delayMs == null) delayMs = getIdleDisconnectMs(guildId);
   clearIdleDisconnect(serverQueue);
   serverQueue.idleTimeout = setTimeout(() => {
     const latestQueue = queue.get(guildId);
@@ -1016,6 +1093,10 @@ function teardownQueue(guildId, serverQueue, destroyConnection) {
   serverQueue.currentSongId = null;
   serverQueue.advancingSongId = null;
   clearIdleDisconnect(serverQueue);
+  if (serverQueue.emptyVcTimeout) {
+    clearTimeout(serverQueue.emptyVcTimeout);
+    serverQueue.emptyVcTimeout = null;
+  }
   cleanupCurrentProcess(serverQueue);
   serverQueue.player.stop(true);
 
@@ -1103,6 +1184,7 @@ function buildNowPlayingEmbed(song, serverQueue) {
 
 // ──── Help Command ────
 function sendHelp(message) {
+  const PREFIX = getPrefix(message.guild.id);
   const embed = new EmbedBuilder()
     .setColor(0x5865F2)
     .setTitle('🎵 J4FN Music Bot — Commands')
@@ -1154,7 +1236,7 @@ function sendHelp(message) {
 function pause(message, serverQueue) {
   if (!serverQueue) return message.reply('❌ Nothing is playing!');
   if (serverQueue.player.state.status === AudioPlayerStatus.Paused) {
-    return message.reply('⏸️ Already paused! Use `' + PREFIX + 'resume` to continue.');
+    return message.reply('⏸️ Already paused! Use `' + getPrefix(message.guild.id) + 'resume` to continue.');
   }
   serverQueue.player.pause();
   message.reply('⏸️ Paused!');
@@ -1214,6 +1296,7 @@ function setVolume(message, serverQueue, args) {
   }
 
   const resource = serverQueue.player.state?.resource;
+  serverQueue.targetVolume = vol / 100;
   if (resource?.volume) {
     resource.volume.setVolume(vol / 100);
     message.reply(`🔊 Volume set to **${vol}%**`);
@@ -1295,7 +1378,7 @@ function moveCommand(message, serverQueue, args) {
   const max = serverQueue.songs.length - 1;
 
   if (isNaN(from) || isNaN(to) || from < 1 || from > max || to < 1 || to > max) {
-    return message.reply(`❌ Usage: \`${PREFIX}move <from> <to>\` — positions 1 to ${max}`);
+    return message.reply(`❌ Usage: \`${getPrefix(message.guild.id)}move <from> <to>\` — positions 1 to ${max}`);
   }
 
   if (from === to) return message.reply('❌ Source and destination are the same!');
@@ -1308,6 +1391,7 @@ function moveCommand(message, serverQueue, args) {
 // ──── Seek ────
 async function seekCommand(message, serverQueue, args) {
   if (!serverQueue || !serverQueue.songs[0]) return message.reply('❌ Nothing is playing!');
+  const PREFIX = getPrefix(message.guild.id);
   const seconds = parseSeekTime(args[0]);
   if (isNaN(seconds) || seconds < 0) {
     return message.reply(`❌ Usage: \`${PREFIX}seek 1:30\` (or seconds like \`90\`)`);
@@ -1325,6 +1409,7 @@ const searchSessions = new Map(); // sessionId -> { results, requesterId }
 let nextSearchSessionId = 1;
 
 async function searchCommand(message, args) {
+  const PREFIX = getPrefix(message.guild.id);
   if (!args.length) return message.reply(`❌ Usage: \`${PREFIX}search <query>\``);
   const query = args.join(' ');
   const searching = await message.reply(`🔍 Searching for **${query}**...`);
@@ -1368,6 +1453,7 @@ async function searchCommand(message, args) {
 
 // ──── Playlist ────
 async function playlistCommand(message, serverQueue, args) {
+  const PREFIX = getPrefix(message.guild.id);
   const url = args[0];
   if (!url || !isUrl(url)) return message.reply(`❌ Usage: \`${PREFIX}playlist <youtube playlist url>\``);
 
@@ -1421,6 +1507,7 @@ async function playlistCommand(message, serverQueue, args) {
 
 // ──── Lyrics ────
 async function lyricsCommand(message, serverQueue, args) {
+  const PREFIX = getPrefix(message.guild.id);
   let query = args.join(' ').trim();
   if (!query && serverQueue?.songs[0]) {
     query = serverQueue.songs[0].title;
@@ -1454,7 +1541,7 @@ async function lyricsCommand(message, serverQueue, args) {
       .setDescription(body);
     await status.edit({ content: '', embeds: [embed] });
   } catch (err) {
-    await status.edit(`❌ No lyrics found. Try \`${PREFIX}lyrics Artist - Song\`.`);
+    await status.edit(`❌ No lyrics found. Try \`${getPrefix(message.guild.id)}lyrics Artist - Song\`.`);
   }
 }
 
