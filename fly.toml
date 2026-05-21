@@ -1,15 +1,19 @@
-# fly.toml app configuration file generated for discord-music-bot-j4fn on 2026-05-21T18:46:59Z
+# fly.toml app configuration file generated for discord-music-bot-j4fn on 2026-05-21T19:34:37Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
 app = 'discord-music-bot-j4fn'
-primary_region = 'sin'
+primary_region = 'cdg'
 
 [build]
 
 [env]
   NODE_ENV = 'production'
+
+[[mounts]]
+  source = 'bot_data'
+  destination = '/data'
 
 [http_service]
   internal_port = 8080
@@ -21,10 +25,6 @@ primary_region = 'sin'
 [[restart]]
   policy = 'always'
   retries = 5
-
-[[mounts]]
-  source = 'bot_data'
-  destination = '/data'
 
 [[vm]]
   size = 'shared-cpu-1x'
