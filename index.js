@@ -147,7 +147,9 @@ const queue = new Map();
 const inflightPlay = new Set(); // guildIds currently bootstrapping a queue
 
 client.once('ready', async () => {
-  console.log(`🎵 ${client.user.tag} is online!`);
+  const machineId = process.env.FLY_MACHINE_ID || 'local';
+  console.log(`🎵 ${client.user.tag} is online! [machine=${machineId}]`);
+  console.log(`👉 If you see this log from MORE than one machine, run: fly scale count 1`);
   updatePresence();
   startPresenceRotation();
 
@@ -401,194 +403,200 @@ async function execute(message, serverQueue, args) {
   const guildId = message.guild.id;
   const searchText = args.join(' ');
 
-  // Re-read live state to avoid races between concurrent !play invocations
+  // Always read live state — never trust the snapshot from messageCreate
   serverQueue = queue.get(guildId);
 
-  if (!serverQueue && inflightPlay.has(guildId)) {
-    return message.reply('⏳ Already joining a voice channel, hang on...');
+  // ── 1. Resolve song metadata FIRST. Single status message, regardless of branch.
+  const statusMsg = await message.reply('🔍 **Searching...**');
+
+  let song;
+  try {
+    if (isUrl(searchText)) {
+      song = await getSongFromUrl(searchText);
+    } else {
+      const searchResult = await ytSearch(searchText);
+      const video = searchResult.videos?.[0];
+      if (!video) {
+        await statusMsg.edit('❌ No results found.').catch(() => {});
+        return;
+      }
+      song = {
+        id: createSongId(),
+        title: video.title,
+        url: video.url,
+        streamUrl: null,
+        duration: video.seconds || null,
+        thumbnail: video.thumbnail || null,
+      };
+    }
+  } catch (err) {
+    console.error('Search error:', err);
+    await statusMsg.edit('❌ Could not resolve song metadata.').catch(() => {});
+    return;
   }
 
+  // Re-read AFTER awaits to pick up state changes during search
+  serverQueue = queue.get(guildId);
+
+  // ── 2. Branch on queue state — re-resolved with fresh state
   if (!serverQueue) {
+    // Cold path: need to join VC. Guard against concurrent bootstrap.
+    if (inflightPlay.has(guildId)) {
+      // Another !play is bootstrapping right now. Wait briefly for it to finish, then append.
+      await statusMsg.edit('⏳ Joining a voice channel — your song will be queued...').catch(() => {});
+      const joined = await waitForQueue(guildId, 15_000);
+      if (!joined) {
+        await statusMsg.edit('❌ Voice join took too long, try again.').catch(() => {});
+        return;
+      }
+      // Fall through to append path
+      serverQueue = queue.get(guildId);
+      if (!serverQueue) {
+        await statusMsg.edit('❌ Bot left before your song could be queued.').catch(() => {});
+        return;
+      }
+      return await appendAndMaybePlay(guildId, serverQueue, song, statusMsg);
+    }
+
     inflightPlay.add(guildId);
-    const queueConstruct = {
-      textChannel: message.channel,
-      voiceChannel,
-      connection: null,
-      currentProcess: null,
-      currentSongId: null,
-      advancingSongId: null,
-      idleTimeout: null,
-      stopped: false,
-      loop: null, // null | 'song' | 'queue'
-      player: createAudioPlayer({
-        behaviors: { noSubscriber: NoSubscriberBehavior.Play },
-      }),
-      songs: [], // Start empty for immediate VC join
-    };
-
-    queue.set(message.guild.id, queueConstruct);
-
     try {
-      // Start voice connection instantly to avoid REST API reply latency
-      const connection = joinVoiceChannel({
-        channelId: voiceChannel.id,
-        guildId: message.guild.id,
-        adapterCreator: message.guild.voiceAdapterCreator,
-        selfDeaf: true,
-        selfMute: false,
-      });
-
-      queueConstruct.connection = connection;
-
-      // Provide instant feedback in chat while searching metadata in parallel
-      const statusMsg = await message.reply('🔍 **Joining voice channel and searching...**');
-      
-      // Handle connection errors
-      connection.on('error', (error) => {
-        console.error('Voice connection error:', error);
-        message.channel.send('❌ Voice connection error! Trying to reconnect...');
-      });
-
-      connection.on('stateChange', async (oldState, newState) => {
-        console.log(`Connection state: ${oldState.status} -> ${newState.status}`);
-        if (newState.status === VoiceConnectionStatus.Disconnected) {
-          try {
-            await Promise.race([
-              entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
-              entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
-            ]);
-            console.log('🔄 Voice connection recovering...');
-          } catch {
-            const currentQueue = queue.get(message.guild.id);
-            if (currentQueue && !currentQueue.stopped) {
-              console.log('🔴 Voice connection lost, stopping playback');
-              currentQueue.textChannel.send('❌ Lost connection to voice channel. Stopping playback.');
-              teardownQueue(message.guild.id, currentQueue, true);
-            } else {
-              try { connection.destroy(); } catch {}
-            }
-          }
-        }
-      });
-
-      connection.subscribe(queueConstruct.player);
-
-      queueConstruct.player.on('stateChange', (oldState, newState) => {
-        console.log(`Player state: ${oldState.status} -> ${newState.status}`);
-      });
-
-      queueConstruct.player.on(AudioPlayerStatus.Idle, async () => {
-        if (queueConstruct.stopped) return;
-        console.log('Song finished, checking queue...');
-        advanceQueue(message.guild.id, queueConstruct, false);
-      });
-
-      queueConstruct.player.on('error', async (error) => {
-        if (queueConstruct.stopped) return;
-        console.error('Player error:', error.message);
-        message.channel.send(`❌ Playback error, skipping...`);
-        advanceQueue(message.guild.id, queueConstruct, true);
-      });
-
-      // Fetch the song metadata in the background while in the voice channel
-      let song;
-      try {
-        if (isUrl(searchText)) {
-          song = await getSongFromUrl(searchText);
-        } else {
-          const searchResult = await ytSearch(searchText);
-          const video = searchResult.videos[0];
-          if (!video) {
-            statusMsg.edit('❌ No results found!');
-            teardownQueue(message.guild.id, queueConstruct, true);
-            return;
-          }
-          song = {
-            id: createSongId(),
-            title: video.title,
-            url: video.url,
-            streamUrl: null,
-            duration: video.seconds || null,
-            thumbnail: video.thumbnail || null,
-          };
-        }
-      } catch (err) {
-        console.error('Search error:', err);
-        statusMsg.edit('❌ Could not resolve song metadata!');
-        teardownQueue(message.guild.id, queueConstruct, true);
-        return;
-      }
-
-      // Crucial: Await voice connection to be fully ready before starting streaming/playback
-      try {
-        await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
-      } catch (voiceErr) {
-        console.error('Voice connection failed to reach Ready status:', voiceErr);
-        statusMsg.edit('❌ Voice connection timed out! Make sure the bot has proper permissions to join.');
-        teardownQueue(message.guild.id, queueConstruct, true);
-        return;
-      }
-
-      queueConstruct.songs.push(song);
-      
-      // Clean up the status message and begin playing
-      try { await statusMsg.delete(); } catch {}
-      await playSong(message.guild.id, song);
-
-    } catch (err) {
-      console.error('Connection error:', err);
-      queue.delete(message.guild.id);
-      return message.reply('❌ Could not join voice channel! Make sure the bot has proper permissions.');
+      await bootstrapAndPlay(message, voiceChannel, song, statusMsg);
     } finally {
       inflightPlay.delete(guildId);
     }
-  } else {
-    // Already in voice channel: search and append to queue
-    serverQueue.stopped = false;
-    clearIdleDisconnect(serverQueue);
-
-    const statusMsg = await message.reply('🔍 **Searching for song...**');
-
-    let song;
-    try {
-      if (isUrl(searchText)) {
-        song = await getSongFromUrl(searchText);
-      } else {
-        const searchResult = await ytSearch(searchText);
-        const video = searchResult.videos[0];
-        if (!video) {
-          statusMsg.edit('❌ No results found!');
-          return;
-        }
-        song = {
-          id: createSongId(),
-          title: video.title,
-          url: video.url,
-          streamUrl: null,
-          duration: video.seconds || null,
-          thumbnail: video.thumbnail || null,
-        };
-      }
-    } catch (err) {
-      console.error('Search error:', err);
-      statusMsg.edit('❌ Could not resolve song metadata!');
-      return;
-    }
-
-    const shouldStartNow = serverQueue.songs.length === 0;
-    serverQueue.songs.push(song);
-
-    try { await statusMsg.delete(); } catch {}
-
-    if (shouldStartNow) {
-      await playSong(message.guild.id, song);
-    } else {
-      return message.reply({
-        content: `➕ Added to queue: **${song.title}**`,
-        components: [createMusicControls(song.id)],
-      });
-    }
+    return;
   }
+
+  // Warm path: queue exists, just append
+  return await appendAndMaybePlay(guildId, serverQueue, song, statusMsg);
+}
+
+// Wait up to timeoutMs for queue to exist for guildId
+function waitForQueue(guildId, timeoutMs) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const check = () => {
+      if (queue.has(guildId)) return resolve(true);
+      if (Date.now() - start > timeoutMs) return resolve(false);
+      setTimeout(check, 200);
+    };
+    check();
+  });
+}
+
+// Append to an existing queue. Plays now if queue was empty; otherwise edits status to "added".
+async function appendAndMaybePlay(guildId, serverQueue, song, statusMsg) {
+  serverQueue.stopped = false;
+  clearIdleDisconnect(serverQueue);
+
+  const shouldStartNow = serverQueue.songs.length === 0;
+  serverQueue.songs.push(song);
+
+  if (shouldStartNow) {
+    // Delete the status; playSong will send the Now Playing embed
+    try { await statusMsg.delete(); } catch {}
+    await playSong(guildId, song);
+    return;
+  }
+
+  // Otherwise edit the original status into an "added to queue" message — no second message
+  try {
+    await statusMsg.edit({
+      content: `➕ Added to queue: **${song.title}**`,
+      components: [createMusicControls(song.id)],
+    });
+  } catch {}
+}
+
+// Build queue, join VC, play first song. statusMsg used as the single visible status line.
+async function bootstrapAndPlay(message, voiceChannel, song, statusMsg) {
+  const guildId = message.guild.id;
+  const queueConstruct = {
+    textChannel: message.channel,
+    voiceChannel,
+    connection: null,
+    currentProcess: null,
+    currentSongId: null,
+    advancingSongId: null,
+    idleTimeout: null,
+    stopped: false,
+    loop: null,
+    player: createAudioPlayer({
+      behaviors: { noSubscriber: NoSubscriberBehavior.Play },
+    }),
+    songs: [],
+  };
+
+  queue.set(guildId, queueConstruct);
+
+  let connection;
+  try {
+    connection = joinVoiceChannel({
+      channelId: voiceChannel.id,
+      guildId,
+      adapterCreator: message.guild.voiceAdapterCreator,
+      selfDeaf: true,
+      selfMute: false,
+    });
+    queueConstruct.connection = connection;
+  } catch (err) {
+    console.error('joinVoiceChannel failed:', err);
+    queue.delete(guildId);
+    await statusMsg.edit('❌ Could not join voice channel. Check permissions.').catch(() => {});
+    return;
+  }
+
+  await statusMsg.edit('🎧 **Joining voice channel...**').catch(() => {});
+
+  connection.on('error', (error) => {
+    console.error('Voice connection error:', error.message || error);
+  });
+
+  connection.on('stateChange', async (oldState, newState) => {
+    if (newState.status === VoiceConnectionStatus.Disconnected) {
+      try {
+        await Promise.race([
+          entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
+          entersState(connection, VoiceConnectionStatus.Connecting, 5_000),
+        ]);
+      } catch {
+        const currentQueue = queue.get(guildId);
+        if (currentQueue && !currentQueue.stopped) {
+          currentQueue.textChannel.send('❌ Lost voice connection. Stopping playback.').catch(() => {});
+          teardownQueue(guildId, currentQueue, true);
+        } else {
+          try { connection.destroy(); } catch {}
+        }
+      }
+    }
+  });
+
+  connection.subscribe(queueConstruct.player);
+
+  queueConstruct.player.on(AudioPlayerStatus.Idle, async () => {
+    if (queueConstruct.stopped) return;
+    advanceQueue(guildId, queueConstruct, false);
+  });
+
+  queueConstruct.player.on('error', async (error) => {
+    if (queueConstruct.stopped) return;
+    console.error('Player error:', error.message || error);
+    queueConstruct.textChannel.send('❌ Playback error, skipping...').catch(() => {});
+    advanceQueue(guildId, queueConstruct, true);
+  });
+
+  try {
+    await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+  } catch (err) {
+    console.error('Voice did not become ready:', err.message || err);
+    await statusMsg.edit('❌ Voice connection timed out. Check the bot has permission to join.').catch(() => {});
+    teardownQueue(guildId, queueConstruct, true);
+    return;
+  }
+
+  queueConstruct.songs.push(song);
+  try { await statusMsg.delete(); } catch {}
+  await playSong(guildId, song);
 }
 
 function createSongId() {
