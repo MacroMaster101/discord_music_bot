@@ -486,6 +486,23 @@ footer a:hover { color: var(--accent); }
 }
 .notice.err { background: rgba(248,113,113,0.06); border-color: rgba(248,113,113,0.25); color: var(--danger); }
 .notice.ok { background: rgba(52,211,153,0.06); border-color: rgba(52,211,153,0.25); color: var(--success); }
+
+.field-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.effective {
+  font-size: 10px; color: var(--muted); font-family: 'JetBrains Mono', monospace;
+  background: rgba(255,255,255,0.025); padding: 2px 8px; border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.scope-hint {
+  font-size: 12px; color: var(--muted); padding: 8px 12px;
+  background: rgba(99,102,241,0.04); border-left: 2px solid var(--primary);
+  border-radius: 6px; margin-bottom: 4px;
+}
+.auth-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; padding: 2px 8px; border-radius: 999px;
+  background: rgba(52,211,153,0.06); border: 1px solid rgba(52,211,153,0.25); color: var(--success);
+}
 </style>
 </head>
 <body>
@@ -571,75 +588,95 @@ footer a:hover { color: var(--accent); }
 <div id="settings-modal" class="modal-bg">
   <div class="modal" role="dialog">
     <div class="modal-header">
-      <h3>⚙️ Bot Settings</h3>
+      <div>
+        <h3>⚙️ Bot Settings</h3>
+        <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">
+          <span id="auth-state">🔒 Locked — paste admin token below</span>
+        </div>
+      </div>
       <button class="modal-close" id="close-settings" aria-label="Close">×</button>
     </div>
     <div class="modal-body">
+
+      <div class="token-section" id="token-section">
+        <div class="field">
+          <label>🔑 Admin Token</label>
+          <div class="field-row" style="gap: 8px">
+            <input type="password" id="admin-token" placeholder="Paste ADMIN_TOKEN" autocomplete="off" style="flex:1">
+            <button class="btn-ghost" id="forget-token" type="button" title="Clear stored token">Forget</button>
+          </div>
+          <div class="field-hint">Stored only in this browser (localStorage). Required to save changes.</div>
+        </div>
+      </div>
+
       <div class="tabs">
         <button class="tab active" data-tab="global">🌐 Global Default</button>
-        <button class="tab" data-tab="guild">🏛️ Per-Server</button>
+        <button class="tab" data-tab="guild">🏛️ Per-Server Override</button>
       </div>
 
       <div id="tab-global" class="tab-pane">
-        <div class="field" style="margin-bottom: 14px">
-          <div class="field-hint">These apply to every server unless overridden below.</div>
-        </div>
+        <div class="scope-hint">These apply to every server unless overridden in the Per-Server tab.</div>
       </div>
 
       <div id="tab-guild" class="tab-pane" style="display:none">
-        <div class="field" style="margin-bottom: 14px">
+        <div class="field">
           <label>Server</label>
           <select id="guild-select"><option value="">— pick a server —</option></select>
-          <div class="field-hint">Leave fields blank to inherit the global default.</div>
+          <div class="field-hint">Leave fields blank to inherit the global default for this server.</div>
         </div>
       </div>
 
-      <div id="fields-container" style="display: flex; flex-direction: column; gap: 14px;">
+      <div id="fields-container" style="display: flex; flex-direction: column; gap: 16px; margin-top: 4px;">
         <div class="field">
-          <label>Prefix</label>
+          <div class="field-head">
+            <label>Prefix</label>
+            <span class="effective" id="eff-prefix">in use: --</span>
+          </div>
           <input type="text" id="f-prefix" maxlength="5" placeholder="!">
           <div class="field-hint">1–5 chars. The character users type before commands.</div>
         </div>
         <div class="field">
-          <label>Default Volume <span id="vol-readout" style="color:var(--text); margin-left:8px">--%</span></label>
+          <div class="field-head">
+            <label>Default Volume</label>
+            <span class="effective"><span id="vol-readout">--%</span> · <span id="eff-defaultVolume">in use: --</span></span>
+          </div>
           <input type="range" id="f-defaultVolume" min="0" max="100" step="1" style="accent-color: var(--primary);">
-          <div class="field-hint">Volume when the bot first joins (0–100). Users can override with !volume.</div>
+          <div class="field-hint">Volume when the bot first joins. Users can override with !volume.</div>
         </div>
         <div class="field">
-          <label>Idle Disconnect Timeout (seconds)</label>
+          <div class="field-head">
+            <label>Idle Disconnect (seconds)</label>
+            <span class="effective" id="eff-idleDisconnectSeconds">in use: --</span>
+          </div>
           <input type="number" id="f-idleDisconnectSeconds" min="5" max="3600">
-          <div class="field-hint">How long to wait after the queue empties before leaving the voice channel.</div>
+          <div class="field-hint">Time to wait after queue empties before leaving voice.</div>
         </div>
         <div class="field">
-          <label>Empty VC Disconnect Timeout (seconds)</label>
+          <div class="field-head">
+            <label>Empty VC Disconnect (seconds)</label>
+            <span class="effective" id="eff-emptyVcDisconnectSeconds">in use: --</span>
+          </div>
           <input type="number" id="f-emptyVcDisconnectSeconds" min="10" max="3600">
-          <div class="field-hint">If the voice channel becomes empty (no humans), wait this long before disconnecting.</div>
+          <div class="field-hint">If the VC has no humans, wait this long before disconnecting.</div>
         </div>
         <div class="field">
           <div class="field-row">
             <label class="switch"><input type="checkbox" id="f-autoPauseWhenAlone"><span class="slider"></span></label>
-            <div>
+            <div style="flex:1">
               <div style="font-weight: 600; color: var(--text); font-size: 13px;">Auto-pause when alone in VC</div>
               <div class="field-hint">Pause playback when the last human leaves, resume when they return.</div>
             </div>
+            <span class="effective" id="eff-autoPauseWhenAlone">in use: --</span>
           </div>
-        </div>
-      </div>
-
-      <div class="token-section">
-        <div class="field">
-          <label>Admin Token</label>
-          <input type="password" id="admin-token" placeholder="Paste ADMIN_TOKEN env var value" autocomplete="off">
-          <div class="field-hint">Stored only in this browser. Required to save changes.</div>
         </div>
       </div>
 
       <div id="settings-msg"></div>
     </div>
     <div class="modal-footer">
-      <button class="btn-ghost btn-danger" id="reset-guild" style="display:none">Reset to Global</button>
+      <button class="btn-ghost btn-danger" id="reset-guild" style="display:none">Reset This Server</button>
       <button class="btn-ghost" id="cancel-settings">Cancel</button>
-      <button class="btn-primary" id="save-settings">Save Changes</button>
+      <button class="btn-primary" id="save-settings" disabled>Save Changes</button>
     </div>
   </div>
 </div>
@@ -650,6 +687,8 @@ footer a:hover { color: var(--accent); }
 <script>
 let localUptimeMs = 0;
 let uptimeTimer = null;
+let consecutiveFailures = 0;
+const FAILURE_THRESHOLD = 3; // only show OFFLINE after 3 misses in a row
 
 function fmtDur(ms) {
   const s = Math.floor(ms/1000);
@@ -676,9 +715,13 @@ function timeAgo(ts) {
 
 async function fetchStats() {
   try {
-    const res = await fetch('/api/stats');
-    if (!res.ok) throw new Error('down');
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch('/api/stats', { signal: ctrl.signal, cache: 'no-store' });
+    clearTimeout(tid);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
     const d = await res.json();
+    consecutiveFailures = 0;
 
     // Brand
     if (d.bot.avatar) {
@@ -786,9 +829,19 @@ async function fetchStats() {
       ).join('');
     }
   } catch (err) {
-    const st = document.getElementById('status');
-    st.className = 'status-pill err';
-    document.getElementById('status-text').textContent = 'OFFLINE';
+    consecutiveFailures += 1;
+    if (consecutiveFailures >= FAILURE_THRESHOLD) {
+      const st = document.getElementById('status');
+      st.className = 'status-pill err';
+      document.getElementById('status-text').textContent = 'OFFLINE';
+    } else {
+      // Soft fail — leave the UI as it was, briefly mark as reconnecting
+      const st = document.getElementById('status');
+      if (!st.classList.contains('err')) {
+        st.className = 'status-pill warn';
+        document.getElementById('status-text').textContent = 'RECONNECTING';
+      }
+    }
   }
 }
 
@@ -841,6 +894,20 @@ guildSelect.addEventListener('change', () => {
   loadCurrent();
 });
 
+tokenInput.addEventListener('input', () => {
+  const v = tokenInput.value.trim();
+  if (v) localStorage.setItem('adminToken', v);
+  else localStorage.removeItem('adminToken');
+  // Re-evaluate auth state without a full reload
+  fetch('/api/settings').then(r => r.json()).then(d => updateAuthState(d.authEnabled));
+});
+
+document.getElementById('forget-token').addEventListener('click', () => {
+  tokenInput.value = '';
+  localStorage.removeItem('adminToken');
+  fetch('/api/settings').then(r => r.json()).then(d => updateAuthState(d.authEnabled));
+});
+
 async function loadGuildList() {
   try {
     const res = await fetch('/api/guilds');
@@ -850,22 +917,65 @@ async function loadGuildList() {
   } catch {}
 }
 
+function updateAuthState(authEnabled) {
+  const el = document.getElementById('auth-state');
+  if (!authEnabled) {
+    el.innerHTML = '⚠️ ADMIN_TOKEN not set on server — editing disabled';
+    el.style.color = 'var(--warning)';
+    saveBtn.disabled = true;
+    return;
+  }
+  const hasToken = !!tokenInput.value.trim();
+  if (hasToken) {
+    el.innerHTML = '<span class="auth-pill">🔓 Token saved</span>';
+    el.style.color = '';
+    saveBtn.disabled = false;
+  } else {
+    el.innerHTML = '🔒 Locked — paste admin token below';
+    el.style.color = 'var(--muted)';
+    saveBtn.disabled = true;
+  }
+}
+
 async function loadCurrent() {
   showMsg('');
   try {
     const guildId = (currentTab === 'guild' && currentGuildId) ? currentGuildId : '';
     const url = '/api/settings' + (guildId ? '?guildId=' + encodeURIComponent(guildId) : '');
-    const res = await fetch(url);
+    const res = await fetch(url, { cache: 'no-store' });
     const data = await res.json();
     lastDefaults = data.defaults || {};
 
+    const eff = data.effective || {};
+
+    const fmt = (key, val) => {
+      if (key === 'autoPauseWhenAlone') return val ? 'ON' : 'OFF';
+      if (key === 'defaultVolume') return val + '%';
+      if (key === 'idleDisconnectSeconds' || key === 'emptyVcDisconnectSeconds') return val + 's';
+      return String(val);
+    };
+
+    const showEffective = (key) => {
+      const el = document.getElementById('eff-' + key);
+      if (!el) return;
+      const isOverridden = currentTab === 'guild' && currentGuildId
+        && data.guild && data.guild[key] != null;
+      if (isOverridden) {
+        el.innerHTML = '<span style="color: var(--accent)">▸</span> override: ' + fmt(key, eff[key]);
+        el.style.borderColor = 'rgba(217,70,239,0.35)';
+        el.style.background = 'rgba(217,70,239,0.06)';
+      } else {
+        el.textContent = 'in use: ' + fmt(key, eff[key]);
+        el.style.borderColor = '';
+        el.style.background = '';
+      }
+    };
+
     const fillValue = (key) => {
       if (currentTab === 'guild' && currentGuildId) {
-        // guild tab: show overrides only (blank if none); placeholder = global value
         const ov = data.guild?.[key];
         return { value: ov ?? '', placeholder: data.global?.[key] ?? data.defaults?.[key] ?? '' };
       } else {
-        // global tab: show global value
         return { value: data.global?.[key] ?? data.defaults?.[key] ?? '', placeholder: '' };
       }
     };
@@ -874,12 +984,17 @@ async function loadCurrent() {
       const el = document.getElementById(id);
       const { value, placeholder } = fillValue(key);
       if (type === 'bool') {
-        el.checked = !!(value === '' ? (data.global?.[key] ?? data.defaults?.[key]) : value);
+        // For per-server: only "on" if explicit override. Otherwise reflect effective.
+        if (currentTab === 'guild' && currentGuildId && data.guild?.[key] == null) {
+          el.checked = !!eff[key]; // show effective, but a save will mark it as override
+        } else {
+          el.checked = !!(value === '' ? eff[key] : value);
+        }
       } else {
         el.value = value;
-        if (placeholder !== '') el.placeholder = String(placeholder);
-        else el.placeholder = '';
+        el.placeholder = placeholder !== '' ? String(placeholder) : '';
       }
+      showEffective(key);
     };
 
     apply('f-prefix', 'prefix', 'text');
@@ -889,12 +1004,7 @@ async function loadCurrent() {
     apply('f-autoPauseWhenAlone', 'autoPauseWhenAlone', 'bool');
     volReadout.textContent = (volSlider.value || '0') + '%';
 
-    if (!data.authEnabled) {
-      showMsg('⚠️ ADMIN_TOKEN env var is not set on the server. Editing is disabled.', '');
-      saveBtn.disabled = true;
-    } else {
-      saveBtn.disabled = false;
-    }
+    updateAuthState(data.authEnabled);
   } catch (err) {
     showMsg('Failed to load settings: ' + (err.message || err), 'err');
   }
@@ -976,8 +1086,13 @@ resetBtn.addEventListener('click', async () => {
   }
 });
 
-fetchStats();
-setInterval(fetchStats, 2500);
+async function pollLoop() {
+  await fetchStats();
+  // Fast retry on failure, normal cadence on success
+  const delay = consecutiveFailures > 0 ? 1500 : 2500;
+  setTimeout(pollLoop, delay);
+}
+pollLoop();
 </script>
 </body>
 </html>`;
