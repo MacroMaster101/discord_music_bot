@@ -6,3 +6,5 @@ node_modules/
 *.bak
 cookies.txt
 cookies_base64.txt
+.claude/
+data/
