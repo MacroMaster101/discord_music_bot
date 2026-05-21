@@ -11,7 +11,7 @@ A powerful, self-hostable Discord music bot that streams audio from YouTube with
 | 📊 **Web Dashboard** | Premium dark-mode status page featuring live-ticking uptime, system specs, RAM usage against the 2 GB VM limit, rotating vinyl card animations for active DJ playbacks, and an admin settings modal for real-time configuration |
 | 🎵 **YouTube Playback** | Play by **search query** or **direct URL** (supports `youtube.com`, `youtu.be`, `/shorts/`, `/live/`) |
 | 🔍 **Interactive Search** | `!search` picks the top 5 YouTube results and lets the user choose via buttons |
-| 📂 **Playlist Support** | `!playlist` queues every video from a YouTube playlist in one go |
+| 📂 **Playlist Support** | `!playlist` queues up to 100 videos from a YouTube playlist in one go |
 | 🎤 **Lyrics Lookup** | `!lyrics` fetches and displays lyrics for the current or any requested song |
 | ⏩ **Seek** | `!seek 1:30` jumps to any position in the current track |
 | 🎛️ **Interactive Controls** | In-chat buttons: **Play Now**, **Skip**, **Queue**, **Stop** — no need to type commands |
@@ -78,14 +78,20 @@ All commands use the configurable prefix (default: `!`). Aliases are shown in pa
 
 ### Button Controls
 
-Every "Now Playing" and "Added to Queue" message includes interactive buttons:
+**"Added to Queue" messages** include:
 
 - **Play Now** — Immediately plays a queued song (skips the current one)
 - **Skip** — Skip the current song
 - **Queue** — View the queue (shown ephemerally, only visible to you)
 - **Stop** — Stop playback and disconnect
 
-The queue view also features a **select-menu picker** where you can choose a song and then:
+**"Now Playing" embeds** include three rows of interactive controls:
+
+- **⏪ 30s / ⏪ 10s / ⏯️ Play-Pause / 10s ⏩ / 30s ⏩** — Seek and pause controls
+- **⏭️ Skip / 🔁 Loop / 🔀 Shuffle / 🔉 -10 / 🔊 +10** — Playback and volume controls
+- **📋 Queue / ⏹️ Stop** — Queue view and disconnect
+
+The **queue view** also features a **select-menu picker** where you can choose a song and then:
 
 - **▶️ Play Now** — Jump to that song immediately
 - **⏫ Move to Top** — Bump it to the next position
@@ -124,11 +130,13 @@ cp .env.example .env
 | Variable | Required | Description |
 |---|---|---|
 | `TOKEN` | ✅ | Discord bot token (also reads `DISCORD_TOKEN` / `BOT_TOKEN`) |
-| `PREFIX` | — | Command prefix (default: `!`) |
 | `ADMIN_TOKEN` | — | Secret token required to edit bot settings via the web dashboard |
-| `YTDLP_COOKIES_PATH` | — | Path to a Netscape-format `cookies.txt` file |
+| `PORT` | — | HTTP port for the web dashboard (default: `8080`) |
+| `YTDLP_COOKIES_PATH` | — | Path to a Netscape-format `cookies.txt` file (also reads `YTDLP_COOKIES`) |
 | `YTDLP_COOKIES_BASE64` | — | Base64-encoded cookies (great for cloud hosts like Fly.io) |
 | `YTDLP_PO_TOKEN` | — | YouTube Proof-of-Origin token (advanced, see [yt-dlp docs](https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide)) |
+
+> **Note:** The command prefix (default `!`) is configured via the web dashboard settings panel, not an environment variable. It can be set globally or overridden per server.
 
 ### Run
 
@@ -178,7 +186,6 @@ Each chain is tried in order. If one is blocked (403 / "Sign in" / "not a bot"),
 docker build -t j4fn-music .
 docker run -d --name j4fn-music \
   -e TOKEN=your_discord_bot_token \
-  -e PREFIX=! \
   -e ADMIN_TOKEN=your_secret_admin_token \
   -e YTDLP_COOKIES_BASE64=your_base64_cookies \
   j4fn-music
@@ -201,7 +208,6 @@ fly auth login
 
 ```bash
 fly secrets set TOKEN=your_discord_bot_token
-fly secrets set PREFIX=!
 fly secrets set ADMIN_TOKEN=your_secret_admin_token
 # Optional: YouTube cookies
 fly secrets set YTDLP_COOKIES_BASE64=your_base64_cookies
