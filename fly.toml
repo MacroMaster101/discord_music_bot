@@ -4,7 +4,7 @@
 #
 
 app = 'discord-music-bot-j4fn'
-primary_region = 'cdg'
+primary_region = 'sin'
 
 [build]
 
