@@ -45,7 +45,7 @@ function startDashboardServer(client, queue) {
           cpus: os.cpus().length,
           nodeVersion: process.version,
           memoryUsedRss: (process.memoryUsage().rss / 1024 / 1024).toFixed(1),
-          memoryTotalLimit: 512, // Fly.io VM RAM limit context
+          memoryTotalLimit: 2048, // Fly.io VM RAM limit context
         },
         activeTracks: Array.from(queue.entries()).map(([guildId, serverQueue]) => {
           const currentSong = serverQueue.songs[0];
