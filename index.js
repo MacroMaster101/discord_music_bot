@@ -30,6 +30,20 @@ const {
 const ytSearch = require('yt-search');
 const youtubedl = require('youtube-dl-exec');
 
+// Stats tracking (in-memory, resets on restart)
+const stats = {
+  totalSongsPlayed: 0,
+  commandLog: [], // ring buffer of last 20 commands
+};
+
+function logCommand(entry) {
+  stats.commandLog.unshift({
+    ...entry,
+    timestamp: Date.now(),
+  });
+  if (stats.commandLog.length > 20) stats.commandLog.pop();
+}
+
 const PREFIX = '!';
 const TOKEN = process.env.TOKEN || process.env.DISCORD_TOKEN || process.env.BOT_TOKEN;
 const IDLE_DISCONNECT_MS = 10000;
@@ -131,7 +145,7 @@ client.once('ready', async () => {
 
   // Start the web dashboard and statistics API server
   try {
-    startDashboardServer(client, queue);
+    startDashboardServer(client, queue, { getBotStats, getQueueProgress });
   } catch (err) {
     console.error('Could not start Web Dashboard Server:', err);
   }
@@ -168,7 +182,22 @@ client.on('messageCreate', async (message) => {
   const command = args.shift().toLowerCase();
   const serverQueue = queue.get(message.guild.id);
 
+  const KNOWN = new Set([
+    'play','p','skip','s','stop','dc','disconnect','queue','q','help','h',
+    'pause','resume','unpause','nowplaying','np','volume','vol','shuffle',
+    'remove','loop','repeat','clear','move','mv','seek','search','sr',
+    'playlist','pl','lyrics','ly'
+  ]);
+
   try {
+    if (KNOWN.has(command)) {
+      logCommand({
+        command,
+        guildName: message.guild.name,
+        userName: message.author.username,
+      });
+    }
+
     if (command === 'play' || command === 'p') await execute(message, serverQueue, args);
     else if (command === 'skip' || command === 's') skip(message, serverQueue);
     else if (command === 'stop' || command === 'dc' || command === 'disconnect') stop(message, serverQueue);
@@ -183,6 +212,10 @@ client.on('messageCreate', async (message) => {
     else if (command === 'loop' || command === 'repeat') loopCommand(message, serverQueue, args);
     else if (command === 'clear') clearQueue(message, serverQueue);
     else if (command === 'move' || command === 'mv') moveCommand(message, serverQueue, args);
+    else if (command === 'seek') await seekCommand(message, serverQueue, args);
+    else if (command === 'search' || command === 'sr') await searchCommand(message, args);
+    else if (command === 'playlist' || command === 'pl') await playlistCommand(message, serverQueue, args);
+    else if (command === 'lyrics' || command === 'ly') await lyricsCommand(message, serverQueue, args);
   } catch (err) {
     console.error('Error:', err);
     message.reply('⚠️ Something went wrong!');
@@ -191,6 +224,38 @@ client.on('messageCreate', async (message) => {
 
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton() || !interaction.guild) return;
+
+  // Search-result picker is handled separately (doesn't need an existing queue)
+  if (interaction.customId.startsWith('search_pick:')) {
+    const [, sessionId, indexStr] = interaction.customId.split(':');
+    const session = searchSessions.get(sessionId);
+    if (!session) {
+      return interaction.reply({ content: '❌ This search has expired.', ephemeral: true });
+    }
+    if (session.requesterId !== interaction.user.id) {
+      return interaction.reply({ content: '❌ Only the user who ran the search can pick.', ephemeral: true });
+    }
+    const video = session.results[parseInt(indexStr, 10)];
+    if (!video) {
+      return interaction.reply({ content: '❌ Invalid pick.', ephemeral: true });
+    }
+    searchSessions.delete(sessionId);
+
+    if (!interaction.member?.voice?.channel) {
+      return interaction.reply({ content: '❌ Join a voice channel first.', ephemeral: true });
+    }
+    await interaction.update({ components: [] });
+
+    // Reuse execute() with a synthetic args list — pretend the user did !play <url>
+    const fakeMessage = {
+      guild: interaction.guild,
+      member: interaction.member,
+      channel: interaction.channel,
+      author: interaction.user,
+      reply: (content) => interaction.followUp(typeof content === 'string' ? { content, ephemeral: false } : content),
+    };
+    return execute(fakeMessage, queue.get(interaction.guild.id), [video.url]);
+  }
 
   const serverQueue = queue.get(interaction.guild.id);
   const memberVoiceChannel = interaction.member?.voice?.channel;
@@ -359,6 +424,8 @@ async function execute(message, serverQueue, args) {
             title: video.title,
             url: video.url,
             streamUrl: null,
+            duration: video.seconds || null,
+            thumbnail: video.thumbnail || null,
           };
         }
       } catch (err) {
@@ -487,6 +554,8 @@ async function getSongFromUrl(input) {
         title: videoInfo.title || url,
         url: videoInfo.webpage_url || videoInfo.original_url || url,
         streamUrl: getBestAudioUrl(videoInfo),
+        duration: videoInfo.duration || null,
+        thumbnail: videoInfo.thumbnail || (videoInfo.thumbnails && videoInfo.thumbnails[videoInfo.thumbnails.length - 1]?.url) || null,
       };
     } catch (err) {
       const errMsg = (err?.stderr || err?.message || '').toLowerCase();
@@ -514,8 +583,11 @@ function getBestAudioUrl(info) {
   const audioFormats = formats
     .filter((format) => format.url && format.acodec && format.acodec !== 'none' && (!format.vcodec || format.vcodec === 'none'))
     .sort((a, b) => {
-      const aScore = (a.abr || a.tbr || 0) + (a.ext === 'webm' ? 1000 : 0);
-      const bScore = (b.abr || b.tbr || 0) + (b.ext === 'webm' ? 1000 : 0);
+      // Penalize HLS (m3u8) since ffmpeg reconnect handling is flaky for chunked streams
+      const aHls = (a.protocol || '').includes('m3u8') || (a.url || '').includes('.m3u8');
+      const bHls = (b.protocol || '').includes('m3u8') || (b.url || '').includes('.m3u8');
+      const aScore = (a.abr || a.tbr || 0) + (a.ext === 'webm' ? 1000 : 0) + (aHls ? -5000 : 0);
+      const bScore = (b.abr || b.tbr || 0) + (b.ext === 'webm' ? 1000 : 0) + (bHls ? -5000 : 0);
       return bScore - aScore;
     });
 
@@ -569,7 +641,7 @@ function moveSongNext(serverQueue, songId) {
   return { status: 'moved', song };
 }
 
-async function playSong(guildId, song) {
+async function playSong(guildId, song, seekSeconds = 0) {
   const serverQueue = queue.get(guildId);
   if (!serverQueue || !song) return;
 
@@ -578,6 +650,8 @@ async function playSong(guildId, song) {
     cleanupCurrentProcess(serverQueue);
     serverQueue.currentSongId = song.id;
     serverQueue.advancingSongId = null;
+    serverQueue.playbackStartedAt = Date.now() - (seekSeconds * 1000);
+    serverQueue.seekOffset = seekSeconds;
 
     const audioUrl = song.streamUrl || await getAudioUrl(song.url);
 
@@ -585,18 +659,29 @@ async function playSong(guildId, song) {
       throw new Error('yt-dlp did not return an audio URL');
     }
 
-    const ffmpeg = spawn('ffmpeg', [
+    const ffmpegArgs = [
       '-reconnect', '1',
       '-reconnect_streamed', '1',
-      '-reconnect_delay_max', '5',
+      '-reconnect_on_network_error', '1',
+      '-reconnect_on_http_error', '4xx,5xx',
+      '-reconnect_delay_max', '30',
+      '-rw_timeout', '15000000',
+    ];
+    if (seekSeconds > 0) {
+      ffmpegArgs.push('-ss', String(seekSeconds));
+    }
+    ffmpegArgs.push(
       '-i', audioUrl,
+      '-vn',
       '-analyzeduration', '0',
       '-loglevel', 'warning',
       '-f', 's16le',
       '-ar', '48000',
       '-ac', '2',
       'pipe:1',
-    ], {
+    );
+
+    const ffmpeg = spawn('ffmpeg', ffmpegArgs, {
       windowsHide: true,
     });
 
@@ -629,11 +714,17 @@ async function playSong(guildId, song) {
     serverQueue.player.play(resource);
     updatePresence(true, song.title);
     setVoiceChannelStatus(serverQueue.voiceChannel.id, `🎵 ${song.title}`);
-    serverQueue.textChannel.send({
-      content: `▶️ Now playing: **${song.title}**`,
-      components: [createMusicControls()],
-    });
-    console.log(`▶️ Playing: ${song.title}`);
+
+    if (seekSeconds === 0) {
+      stats.totalSongsPlayed += 1;
+      const embed = buildNowPlayingEmbed(song, serverQueue);
+      serverQueue.textChannel.send({
+        embeds: [embed],
+        components: [createMusicControls()],
+      });
+    }
+
+    console.log(`▶️ Playing: ${song.title}${seekSeconds ? ` (from ${seekSeconds}s)` : ''}`);
     return true;
   } catch (err) {
     const technicalReason = getTechnicalErrorMessage(err);
@@ -941,6 +1032,61 @@ function getQueueText(serverQueue) {
   return `🎵 **Queue${loopIndicator}:**\n${queueList}`;
 }
 
+// ──── Embed / time helpers ────
+function formatTime(totalSeconds) {
+  if (totalSeconds == null || isNaN(totalSeconds)) return '--:--';
+  const s = Math.floor(totalSeconds % 60);
+  const m = Math.floor((totalSeconds / 60) % 60);
+  const h = Math.floor(totalSeconds / 3600);
+  const pad = (n) => n.toString().padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+}
+
+function parseSeekTime(input) {
+  if (!input) return NaN;
+  const parts = input.split(':').map(Number);
+  if (parts.some(isNaN)) return NaN;
+  if (parts.length === 1) return parts[0];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return NaN;
+}
+
+function getElapsedSeconds(serverQueue) {
+  if (!serverQueue?.playbackStartedAt) return 0;
+  return Math.floor((Date.now() - serverQueue.playbackStartedAt) / 1000);
+}
+
+function buildProgressBar(elapsed, duration, length = 20) {
+  if (!duration || duration <= 0) return '─'.repeat(length);
+  const ratio = Math.max(0, Math.min(1, elapsed / duration));
+  const pos = Math.floor(ratio * (length - 1));
+  return '─'.repeat(pos) + '🔘' + '─'.repeat(length - pos - 1);
+}
+
+function buildNowPlayingEmbed(song, serverQueue) {
+  const elapsed = getElapsedSeconds(serverQueue);
+  const duration = song.duration || 0;
+  const bar = buildProgressBar(elapsed, duration);
+  const timeLine = duration
+    ? `\`${formatTime(elapsed)} ${bar} ${formatTime(duration)}\``
+    : `\`${formatTime(elapsed)} ${bar} live\``;
+  const loopText = serverQueue.loop === 'song' ? ' 🔂' : serverQueue.loop === 'queue' ? ' 🔁' : '';
+
+  const embed = new EmbedBuilder()
+    .setColor(0x6366f1)
+    .setAuthor({ name: `▶️ Now Playing${loopText}` })
+    .setTitle(song.title.length > 250 ? song.title.slice(0, 247) + '...' : song.title)
+    .setURL(song.url)
+    .setDescription(timeLine)
+    .addFields(
+      { name: 'Volume', value: `${getVolume(serverQueue)}%`, inline: true },
+      { name: 'Queue', value: `${Math.max(0, serverQueue.songs.length - 1)} up next`, inline: true },
+    );
+  if (song.thumbnail) embed.setThumbnail(song.thumbnail);
+  return embed;
+}
+
 // ──── Help Command ────
 function sendHelp(message) {
   const embed = new EmbedBuilder()
@@ -952,11 +1098,14 @@ function sendHelp(message) {
         name: '🎶  Playback',
         value: [
           `\`${PREFIX}play <song>\` *(p)* — Play a song by name or URL`,
-          `\`${PREFIX}pause\` — Pause the current song`,
-          `\`${PREFIX}resume\` *(unpause)* — Resume playback`,
+          `\`${PREFIX}search <query>\` *(sr)* — Pick from top 5 results`,
+          `\`${PREFIX}playlist <url>\` *(pl)* — Add a YouTube playlist`,
+          `\`${PREFIX}pause\` / \`${PREFIX}resume\` — Pause / resume`,
           `\`${PREFIX}skip\` *(s)* — Skip to the next song`,
-          `\`${PREFIX}stop\` *(dc, disconnect)* — Stop playback and disconnect`,
-          `\`${PREFIX}nowplaying\` *(np)* — Show the current song`,
+          `\`${PREFIX}seek <time>\` — Jump to a position (\`1:30\`)`,
+          `\`${PREFIX}stop\` *(dc)* — Stop and disconnect`,
+          `\`${PREFIX}nowplaying\` *(np)* — Show current song`,
+          `\`${PREFIX}lyrics\` *(ly)* — Lyrics for current song`,
         ].join('\n'),
       },
       {
@@ -1141,5 +1290,185 @@ function moveCommand(message, serverQueue, args) {
   serverQueue.songs.splice(to, 0, song);
   message.reply(`↕️ Moved **${song.title}** from position ${from} to ${to}.`);
 }
+
+// ──── Seek ────
+async function seekCommand(message, serverQueue, args) {
+  if (!serverQueue || !serverQueue.songs[0]) return message.reply('❌ Nothing is playing!');
+  const seconds = parseSeekTime(args[0]);
+  if (isNaN(seconds) || seconds < 0) {
+    return message.reply(`❌ Usage: \`${PREFIX}seek 1:30\` (or seconds like \`90\`)`);
+  }
+  const current = serverQueue.songs[0];
+  if (current.duration && seconds >= current.duration) {
+    return message.reply('❌ Seek time is past the end of the song.');
+  }
+  await message.reply(`⏩ Seeking to **${formatTime(seconds)}**...`);
+  await playSong(message.guild.id, current, seconds);
+}
+
+// ──── Search ────
+const searchSessions = new Map(); // sessionId -> { results, requesterId }
+let nextSearchSessionId = 1;
+
+async function searchCommand(message, args) {
+  if (!args.length) return message.reply(`❌ Usage: \`${PREFIX}search <query>\``);
+  const query = args.join(' ');
+  const searching = await message.reply(`🔍 Searching for **${query}**...`);
+
+  let videos;
+  try {
+    const result = await ytSearch(query);
+    videos = (result.videos || []).slice(0, 5);
+  } catch (err) {
+    return searching.edit('❌ Search failed.');
+  }
+
+  if (!videos.length) return searching.edit('❌ No results found.');
+
+  const sessionId = (nextSearchSessionId++).toString();
+  searchSessions.set(sessionId, {
+    results: videos,
+    requesterId: message.author.id,
+    createdAt: Date.now(),
+  });
+  setTimeout(() => searchSessions.delete(sessionId), 60_000);
+
+  const list = videos.map((v, i) => `**${i + 1}.** [${v.title}](${v.url}) — \`${v.timestamp}\``).join('\n');
+  const embed = new EmbedBuilder()
+    .setColor(0xd946ef)
+    .setTitle(`🔍 Search results for "${query}"`)
+    .setDescription(list)
+    .setFooter({ text: 'Pick a result with the buttons below • expires in 60s' });
+
+  const row = new ActionRowBuilder().addComponents(
+    ...videos.map((_, i) =>
+      new ButtonBuilder()
+        .setCustomId(`search_pick:${sessionId}:${i}`)
+        .setLabel(`${i + 1}`)
+        .setStyle(ButtonStyle.Primary)
+    )
+  );
+
+  await searching.edit({ content: '', embeds: [embed], components: [row] });
+}
+
+// ──── Playlist ────
+async function playlistCommand(message, serverQueue, args) {
+  const url = args[0];
+  if (!url || !isUrl(url)) return message.reply(`❌ Usage: \`${PREFIX}playlist <youtube playlist url>\``);
+
+  const voiceChannel = message.member?.voice?.channel;
+  if (!voiceChannel) return message.reply('❌ You need to be in a voice channel!');
+
+  const status = await message.reply('📥 Loading playlist...');
+  let info;
+  try {
+    info = await youtubedl(url, {
+      ...getYtdlpBaseOptions(),
+      dumpSingleJson: true,
+      flatPlaylist: true,
+      skipDownload: true,
+      noPlaylist: false,
+    });
+  } catch (err) {
+    console.error('Playlist load failed:', err.message || err);
+    return status.edit('❌ Could not load that playlist.');
+  }
+
+  const entries = Array.isArray(info?.entries) ? info.entries : [];
+  if (!entries.length) return status.edit('❌ Playlist is empty or unreadable.');
+
+  const songsToAdd = entries
+    .filter((e) => e && (e.url || e.id))
+    .slice(0, 100)
+    .map((e) => ({
+      id: createSongId(),
+      title: e.title || 'Unknown title',
+      url: e.url && e.url.startsWith('http') ? e.url : `https://www.youtube.com/watch?v=${e.id}`,
+      streamUrl: null,
+      duration: e.duration || null,
+      thumbnail: e.thumbnails && e.thumbnails[e.thumbnails.length - 1]?.url || null,
+    }));
+
+  if (!serverQueue) {
+    // bootstrap a queue using execute() for the first song so voice connection is set up correctly
+    const fakeArgs = [songsToAdd[0].url];
+    await execute(message, undefined, fakeArgs);
+    const newQueue = queue.get(message.guild.id);
+    if (newQueue) {
+      for (let i = 1; i < songsToAdd.length; i++) newQueue.songs.push(songsToAdd[i]);
+    }
+  } else {
+    for (const s of songsToAdd) serverQueue.songs.push(s);
+  }
+
+  await status.edit(`✅ Added **${songsToAdd.length}** songs from the playlist.`);
+}
+
+// ──── Lyrics ────
+async function lyricsCommand(message, serverQueue, args) {
+  let query = args.join(' ').trim();
+  if (!query && serverQueue?.songs[0]) {
+    query = serverQueue.songs[0].title;
+  }
+  if (!query) return message.reply(`❌ Usage: \`${PREFIX}lyrics <artist - song>\` (or play a song first)`);
+
+  // Try to split on " - " for artist/title; otherwise fall back to title-only search
+  let artist, title;
+  if (query.includes(' - ')) {
+    [artist, title] = query.split(' - ').map((s) => s.trim());
+  } else {
+    artist = '';
+    title = query.replace(/\(.*?\)|\[.*?\]/g, '').trim();
+  }
+
+  const status = await message.reply(`📜 Looking up lyrics for **${title || query}**...`);
+
+  try {
+    const url = `https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data.lyrics) throw new Error('No lyrics');
+
+    let body = data.lyrics.trim();
+    if (body.length > 3900) body = body.slice(0, 3900) + '\n\n... *(truncated)*';
+
+    const embed = new EmbedBuilder()
+      .setColor(0x10b981)
+      .setTitle(`📜 ${title || query}${artist ? ` — ${artist}` : ''}`)
+      .setDescription(body);
+    await status.edit({ content: '', embeds: [embed] });
+  } catch (err) {
+    await status.edit(`❌ No lyrics found. Try \`${PREFIX}lyrics Artist - Song\`.`);
+  }
+}
+
+// Expose stats for the dashboard
+function getBotStats() {
+  return {
+    totalSongsPlayed: stats.totalSongsPlayed,
+    commandLog: stats.commandLog.slice(0, 10),
+  };
+}
+
+function getQueueProgress(serverQueue) {
+  const elapsed = getElapsedSeconds(serverQueue);
+  const song = serverQueue.songs[0];
+  return {
+    elapsedSeconds: elapsed,
+    durationSeconds: song?.duration || 0,
+    elapsedText: formatTime(elapsed),
+    durationText: song?.duration ? formatTime(song.duration) : 'live',
+    thumbnail: song?.thumbnail || null,
+    upcoming: serverQueue.songs.slice(1, 5).map((s) => ({
+      title: s.title,
+      url: s.url,
+      duration: s.duration || null,
+    })),
+  };
+}
+
+module.exports = { getBotStats, getQueueProgress };
 
 client.login(TOKEN);
