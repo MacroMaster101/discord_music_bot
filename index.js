@@ -30,7 +30,7 @@ const {
 const ytSearch = require('yt-search');
 const youtubedl = require('youtube-dl-exec');
 
-const PREFIX = process.env.PREFIX || '!';
+const PREFIX = '!';
 const TOKEN = process.env.TOKEN || process.env.DISCORD_TOKEN || process.env.BOT_TOKEN;
 const IDLE_DISCONNECT_MS = 10000;
 const ERROR_DISCONNECT_MS = 5000;
