@@ -137,6 +137,7 @@ const client = new Client({
 });
 
 const queue = new Map();
+const inflightPlay = new Set(); // guildIds currently bootstrapping a queue
 
 client.once('ready', async () => {
   console.log(`🎵 ${client.user.tag} is online!`);
@@ -323,9 +324,18 @@ async function execute(message, serverQueue, args) {
   if (!voiceChannel) return message.reply('❌ You need to be in a voice channel!');
   if (!args.length) return message.reply(`Usage: \`${PREFIX}play <song name or URL>\``);
 
+  const guildId = message.guild.id;
   const searchText = args.join(' ');
 
+  // Re-read live state to avoid races between concurrent !play invocations
+  serverQueue = queue.get(guildId);
+
+  if (!serverQueue && inflightPlay.has(guildId)) {
+    return message.reply('⏳ Already joining a voice channel, hang on...');
+  }
+
   if (!serverQueue) {
+    inflightPlay.add(guildId);
     const queueConstruct = {
       textChannel: message.channel,
       voiceChannel,
@@ -455,6 +465,8 @@ async function execute(message, serverQueue, args) {
       console.error('Connection error:', err);
       queue.delete(message.guild.id);
       return message.reply('❌ Could not join voice channel! Make sure the bot has proper permissions.');
+    } finally {
+      inflightPlay.delete(guildId);
     }
   } else {
     // Already in voice channel: search and append to queue
@@ -479,6 +491,8 @@ async function execute(message, serverQueue, args) {
           title: video.title,
           url: video.url,
           streamUrl: null,
+          duration: video.seconds || null,
+          thumbnail: video.thumbnail || null,
         };
       }
     } catch (err) {
