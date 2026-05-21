@@ -25,6 +25,7 @@ function getVolume(serverQueue) {
 
 function startDashboardServer(client, queue) {
   const PORT = process.env.PORT || 8080;
+  const PREFIX = '!';
 
   const server = http.createServer((req, res) => {
     // 1. API Stats Endpoint
