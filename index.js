@@ -815,11 +815,10 @@ async function playSong(guildId, song, seekSeconds = 0) {
 
     if (seekSeconds === 0) {
       stats.totalSongsPlayed += 1;
-      const embed = buildNowPlayingEmbed(song, serverQueue);
-      serverQueue.textChannel.send({
-        embeds: [embed],
-        components: [createMusicControls()],
-      });
+      await showOrUpdateNowPlaying(serverQueue, song);
+    } else {
+      // Seek: refresh the live message with the new offset
+      await showOrUpdateNowPlaying(serverQueue, song);
     }
 
     console.log(`▶️ Playing: ${song.title}${seekSeconds ? ` (from ${seekSeconds}s)` : ''}`);
@@ -951,6 +950,11 @@ function advanceQueue(guildId, serverQueue, delayNext, errorReason = null) {
   serverQueue.advancingSongId = null;
   updatePresence(false);
   setVoiceChannelStatus(serverQueue.voiceChannel.id, '');
+  stopNowPlayingTicker(serverQueue);
+  if (serverQueue.nowPlayingMessage) {
+    serverQueue.nowPlayingMessage.edit({ components: [] }).catch(() => {});
+    serverQueue.nowPlayingMessage = null;
+  }
 
   if (errorReason) {
     console.log('⚠️ Queue empty after playback error, disconnecting soon');
@@ -1101,6 +1105,12 @@ function teardownQueue(guildId, serverQueue, destroyConnection) {
   serverQueue.currentSongId = null;
   serverQueue.advancingSongId = null;
   clearIdleDisconnect(serverQueue);
+  stopNowPlayingTicker(serverQueue);
+  // Disable buttons on the final Now Playing message
+  if (serverQueue.nowPlayingMessage) {
+    serverQueue.nowPlayingMessage.edit({ components: [] }).catch(() => {});
+    serverQueue.nowPlayingMessage = null;
+  }
   if (serverQueue.emptyVcTimeout) {
     clearTimeout(serverQueue.emptyVcTimeout);
     serverQueue.emptyVcTimeout = null;
@@ -1165,6 +1175,62 @@ function buildProgressBar(elapsed, duration, length = 20) {
   const ratio = Math.max(0, Math.min(1, elapsed / duration));
   const pos = Math.floor(ratio * (length - 1));
   return '─'.repeat(pos) + '🔘' + '─'.repeat(length - pos - 1);
+}
+
+// Send or edit the live "Now Playing" message. Posts a new one if the channel
+// has changed, otherwise edits the existing one. Also (re)starts the live ticker.
+async function showOrUpdateNowPlaying(serverQueue, song) {
+  stopNowPlayingTicker(serverQueue);
+
+  const embed = buildNowPlayingEmbed(song, serverQueue);
+  const components = [createMusicControls()];
+  const payload = { embeds: [embed], components };
+
+  try {
+    if (serverQueue.nowPlayingMessage && !serverQueue.nowPlayingMessage.deleted) {
+      await serverQueue.nowPlayingMessage.edit(payload);
+    } else {
+      serverQueue.nowPlayingMessage = await serverQueue.textChannel.send(payload);
+    }
+  } catch (err) {
+    // Message may have been deleted; send a fresh one
+    try {
+      serverQueue.nowPlayingMessage = await serverQueue.textChannel.send(payload);
+    } catch (sendErr) {
+      console.warn('Could not post Now Playing message:', sendErr.message || sendErr);
+      return;
+    }
+  }
+
+  startNowPlayingTicker(serverQueue);
+}
+
+function startNowPlayingTicker(serverQueue) {
+  stopNowPlayingTicker(serverQueue);
+  serverQueue.nowPlayingTicker = setInterval(async () => {
+    const song = serverQueue.songs[0];
+    if (!song || serverQueue.stopped || !serverQueue.nowPlayingMessage) {
+      stopNowPlayingTicker(serverQueue);
+      return;
+    }
+    // Skip ticking while paused — clock stays put
+    if (serverQueue.player.state.status === AudioPlayerStatus.Paused) return;
+    try {
+      await serverQueue.nowPlayingMessage.edit({
+        embeds: [buildNowPlayingEmbed(song, serverQueue)],
+        components: [createMusicControls()],
+      });
+    } catch (err) {
+      stopNowPlayingTicker(serverQueue);
+    }
+  }, 5000);
+}
+
+function stopNowPlayingTicker(serverQueue) {
+  if (serverQueue?.nowPlayingTicker) {
+    clearInterval(serverQueue.nowPlayingTicker);
+    serverQueue.nowPlayingTicker = null;
+  }
 }
 
 function buildNowPlayingEmbed(song, serverQueue) {
