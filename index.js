@@ -1121,9 +1121,9 @@ function getPresenceActivities() {
 
     return [
       { name: `🎶 ${title}`, type: ActivityType.Listening },
-      { name: `⚡ Vibes @ ${vol}% vol`, type: ActivityType.Streaming, url: 'https://www.youtube.com' },
       { name: `📋 Queue | ${queueCount} track(s)`, type: ActivityType.Watching },
       { name: `🔊 Room | ${vcName}`, type: ActivityType.Watching },
+      { name: `🔥 Dropping Beats Non-Stop`, type: ActivityType.Playing },
       { name: `!np 🔎 for info`, type: ActivityType.Listening },
     ];
   }
@@ -1131,8 +1131,8 @@ function getPresenceActivities() {
   return [
     { name: `!play 🎵 | Vibes on Demand`, type: ActivityType.Listening },
     { name: `!help 📖 | Guide & Controls`, type: ActivityType.Watching },
-    { name: `🌐 ${serverCount} Guilds & Countless Beats`, type: ActivityType.Watching },
-    { name: `🎧 Pure Lo-Fi & High-Fi`, type: ActivityType.Playing },
+    { name: `💿 Spinning Virtual Vinyl`, type: ActivityType.Playing },
+    { name: `🎤 Ready to Drop the Bass`, type: ActivityType.Competing },
     { name: `🏆 The Ultimate DJ Battle`, type: ActivityType.Competing },
   ];
 }
