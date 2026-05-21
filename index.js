@@ -367,6 +367,36 @@ client.on('interactionCreate', async (interaction) => {
     });
   }
 
+  if (interaction.customId === 'np_pause') {
+    const isPaused = serverQueue.player.state.status === AudioPlayerStatus.Paused;
+    if (isPaused) {
+      serverQueue.player.unpause();
+      return interaction.reply({ content: '▶️ Resumed', ephemeral: true });
+    } else {
+      serverQueue.player.pause();
+      return interaction.reply({ content: '⏸️ Paused', ephemeral: true });
+    }
+  }
+
+  if (interaction.customId.startsWith('np_seek:')) {
+    const delta = parseInt(interaction.customId.split(':')[1], 10);
+    const song = serverQueue.songs[0];
+    if (!song) {
+      return interaction.reply({ content: '❌ Nothing is playing.', ephemeral: true });
+    }
+    const elapsed = getElapsedSeconds(serverQueue);
+    let target = elapsed + delta;
+    if (target < 0) target = 0;
+    if (song.duration && target >= song.duration - 1) {
+      // Seeking past end → just skip
+      skipQueue(serverQueue);
+      return interaction.reply({ content: '⏭️ Past end — skipped.', ephemeral: true });
+    }
+    await interaction.deferUpdate().catch(() => {});
+    await playSong(interaction.guild.id, song, target);
+    return;
+  }
+
   if (interaction.customId.startsWith('music_next:')) {
     const songId = interaction.customId.split(':')[1];
     const result = moveSongNext(serverQueue, songId);
@@ -815,9 +845,10 @@ async function playSong(guildId, song, seekSeconds = 0) {
 
     if (seekSeconds === 0) {
       stats.totalSongsPlayed += 1;
-      await showOrUpdateNowPlaying(serverQueue, song);
+      // New song → delete old card, post fresh one at the bottom
+      await postFreshNowPlaying(serverQueue, song);
     } else {
-      // Seek: refresh the live message with the new offset
+      // Seek: keep the same card, just refresh contents
       await showOrUpdateNowPlaying(serverQueue, song);
     }
 
@@ -1179,21 +1210,67 @@ function buildProgressBar(elapsed, duration, length = 20) {
 
 // Send or edit the live "Now Playing" message. Posts a new one if the channel
 // has changed, otherwise edits the existing one. Also (re)starts the live ticker.
+function nowPlayingComponents() {
+  // Row 1: seek controls
+  const seekRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('np_seek:-30').setLabel('⏪ 30s').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('np_seek:-10').setLabel('⏪ 10s').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('np_pause').setLabel('⏯️ Play/Pause').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('np_seek:10').setLabel('10s ⏩').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('np_seek:30').setLabel('30s ⏩').setStyle(ButtonStyle.Secondary),
+  );
+  // Row 2: queue actions
+  const actionRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('music_skip').setLabel('Skip').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('music_queue').setLabel('Queue').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('music_stop').setLabel('Stop').setStyle(ButtonStyle.Danger),
+  );
+  return [seekRow, actionRow];
+}
+
+// Delete the previous Now Playing message (if any) and send a fresh one at the bottom.
+// Used when a new song starts so the card stays visible.
+async function postFreshNowPlaying(serverQueue, song) {
+  stopNowPlayingTicker(serverQueue);
+
+  // Best-effort delete of the old card
+  if (serverQueue.nowPlayingMessage) {
+    serverQueue.nowPlayingMessage.delete().catch(() => {});
+    serverQueue.nowPlayingMessage = null;
+  }
+
+  const payload = {
+    embeds: [buildNowPlayingEmbed(song, serverQueue)],
+    components: nowPlayingComponents(),
+  };
+
+  try {
+    serverQueue.nowPlayingMessage = await serverQueue.textChannel.send(payload);
+  } catch (err) {
+    console.warn('Could not post Now Playing message:', err.message || err);
+    return;
+  }
+
+  startNowPlayingTicker(serverQueue);
+}
+
+// Edit the existing Now Playing message in place (used for ticks and seeks).
+// Falls back to a fresh send if the old one is gone.
 async function showOrUpdateNowPlaying(serverQueue, song) {
   stopNowPlayingTicker(serverQueue);
 
-  const embed = buildNowPlayingEmbed(song, serverQueue);
-  const components = [createMusicControls()];
-  const payload = { embeds: [embed], components };
+  const payload = {
+    embeds: [buildNowPlayingEmbed(song, serverQueue)],
+    components: nowPlayingComponents(),
+  };
 
   try {
-    if (serverQueue.nowPlayingMessage && !serverQueue.nowPlayingMessage.deleted) {
+    if (serverQueue.nowPlayingMessage) {
       await serverQueue.nowPlayingMessage.edit(payload);
     } else {
       serverQueue.nowPlayingMessage = await serverQueue.textChannel.send(payload);
     }
   } catch (err) {
-    // Message may have been deleted; send a fresh one
     try {
       serverQueue.nowPlayingMessage = await serverQueue.textChannel.send(payload);
     } catch (sendErr) {
@@ -1218,7 +1295,7 @@ function startNowPlayingTicker(serverQueue) {
     try {
       await serverQueue.nowPlayingMessage.edit({
         embeds: [buildNowPlayingEmbed(song, serverQueue)],
-        components: [createMusicControls()],
+        components: nowPlayingComponents(),
       });
     } catch (err) {
       stopNowPlayingTicker(serverQueue);
