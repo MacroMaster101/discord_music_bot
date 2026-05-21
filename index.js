@@ -16,6 +16,7 @@ const {
   Client,
   EmbedBuilder,
   GatewayIntentBits,
+  StringSelectMenuBuilder,
 } = require('discord.js');
 
 const {
@@ -299,7 +300,57 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isButton() || !interaction.guild) return;
+  if (!interaction.guild) return;
+  if (!interaction.isButton() && !interaction.isStringSelectMenu()) return;
+
+  // Queue picker — select menu produces this; action buttons follow it
+  if (interaction.isStringSelectMenu() && interaction.customId === 'queue_pick') {
+    const sq = queue.get(interaction.guild.id);
+    if (!sq) return interaction.reply({ content: '❌ Nothing is playing.', ephemeral: true });
+    const songId = interaction.values[0];
+    const song = sq.songs.find((s) => s.id === songId);
+    if (!song) return interaction.reply({ content: '❌ Song no longer in queue.', ephemeral: true });
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`qa_play:${songId}`).setLabel('▶️ Play Now').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`qa_next:${songId}`).setLabel('⏫ Move to Top').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`qa_remove:${songId}`).setLabel('🗑️ Remove').setStyle(ButtonStyle.Danger),
+    );
+    return interaction.reply({
+      content: `What do you want to do with **${song.title}**?`,
+      components: [row],
+      ephemeral: true,
+    });
+  }
+
+  // Queue action buttons (from the picker)
+  if (interaction.isButton() && interaction.customId.startsWith('qa_')) {
+    const sq = queue.get(interaction.guild.id);
+    if (!sq) return interaction.reply({ content: '❌ Nothing is playing.', ephemeral: true });
+    const [action, songId] = interaction.customId.split(':');
+    const songIndex = sq.songs.findIndex((s) => s.id === songId);
+    if (songIndex === -1 || songIndex === 0) {
+      return interaction.update({ content: '❌ That song is no longer in the queue.', components: [] });
+    }
+    const song = sq.songs[songIndex];
+
+    if (action === 'qa_remove') {
+      sq.songs.splice(songIndex, 1);
+      return interaction.update({ content: `🗑️ Removed **${song.title}**.`, components: [] });
+    }
+    if (action === 'qa_next') {
+      sq.songs.splice(songIndex, 1);
+      sq.songs.splice(1, 0, song);
+      return interaction.update({ content: `⏫ **${song.title}** is now up next.`, components: [] });
+    }
+    if (action === 'qa_play') {
+      sq.songs.splice(songIndex, 1);
+      sq.songs.splice(1, 0, song);
+      await interaction.update({ content: `▶️ Playing **${song.title}** now.`, components: [] });
+      skipQueue(sq);
+      return;
+    }
+  }
 
   // Search-result picker is handled separately (doesn't need an existing queue)
   if (interaction.customId.startsWith('search_pick:')) {
@@ -361,10 +412,57 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   if (interaction.customId === 'music_queue') {
-    return interaction.reply({
-      content: getQueueText(serverQueue),
-      ephemeral: true,
-    });
+    const { embed, components } = buildQueueView(serverQueue);
+    return interaction.reply({ embeds: [embed], components, ephemeral: true });
+  }
+
+  if (interaction.customId === 'np_loop') {
+    // Cycle off → song → queue → off
+    if (!serverQueue.loop) serverQueue.loop = 'song';
+    else if (serverQueue.loop === 'song') serverQueue.loop = 'queue';
+    else serverQueue.loop = null;
+    const label = serverQueue.loop === 'song' ? '🔂 Looping current song'
+      : serverQueue.loop === 'queue' ? '🔁 Looping entire queue'
+      : '➡️ Loop disabled';
+    // Refresh the card so the loop button reflects new state
+    const song = serverQueue.songs[0];
+    if (song && serverQueue.nowPlayingMessage) {
+      serverQueue.nowPlayingMessage.edit({
+        embeds: [buildNowPlayingEmbed(song, serverQueue)],
+        components: nowPlayingComponents(serverQueue),
+      }).catch(() => {});
+    }
+    return interaction.reply({ content: label, ephemeral: true });
+  }
+
+  if (interaction.customId === 'np_shuffle') {
+    if (serverQueue.songs.length < 3) {
+      return interaction.reply({ content: '❌ Need at least 2 upcoming songs to shuffle.', ephemeral: true });
+    }
+    const upcoming = serverQueue.songs.slice(1);
+    for (let i = upcoming.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [upcoming[i], upcoming[j]] = [upcoming[j], upcoming[i]];
+    }
+    serverQueue.songs = [serverQueue.songs[0], ...upcoming];
+    return interaction.reply({ content: `🔀 Shuffled ${upcoming.length} songs.`, ephemeral: true });
+  }
+
+  if (interaction.customId.startsWith('np_vol:')) {
+    const delta = parseInt(interaction.customId.split(':')[1], 10);
+    const current = Math.round((serverQueue.targetVolume ?? 0.5) * 100);
+    const target = Math.max(0, Math.min(100, current + delta));
+    serverQueue.targetVolume = target / 100;
+    const resource = serverQueue.player.state?.resource;
+    if (resource?.volume) resource.volume.setVolume(target / 100);
+    const song = serverQueue.songs[0];
+    if (song && serverQueue.nowPlayingMessage) {
+      serverQueue.nowPlayingMessage.edit({
+        embeds: [buildNowPlayingEmbed(song, serverQueue)],
+        components: nowPlayingComponents(serverQueue),
+      }).catch(() => {});
+    }
+    return interaction.reply({ content: `🔊 Volume: **${target}%**`, ephemeral: true });
   }
 
   if (interaction.customId === 'np_pause') {
@@ -1165,7 +1263,8 @@ function showQueue(message, serverQueue) {
   if (!serverQueue || !serverQueue.songs.length) {
     return message.reply('❌ Queue is empty!');
   }
-  message.reply(getQueueText(serverQueue));
+  const { embed, components } = buildQueueView(serverQueue);
+  return message.reply({ embeds: [embed], components });
 }
 
 function getQueueText(serverQueue) {
@@ -1174,6 +1273,47 @@ function getQueueText(serverQueue) {
     .map((song, i) => `${i === 0 ? '▶️' : `${i}.`} ${song.title}`)
     .join('\n');
   return `🎵 **Queue${loopIndicator}:**\n${queueList}`;
+}
+
+function buildQueueView(serverQueue) {
+  const loopIndicator = serverQueue.loop === 'song' ? ' • 🔂 Looping song'
+    : serverQueue.loop === 'queue' ? ' • 🔁 Looping queue' : '';
+
+  const current = serverQueue.songs[0];
+  const upcoming = serverQueue.songs.slice(1);
+
+  const lines = upcoming.slice(0, 15).map((s, i) => {
+    const dur = s.duration ? ` \`${formatTime(s.duration)}\`` : '';
+    return `**${i + 1}.** [${s.title}](${s.url})${dur}`;
+  });
+
+  const description =
+    `**▶️ Now Playing:**\n[${current.title}](${current.url})` +
+    (upcoming.length
+      ? `\n\n**📋 Up Next (${upcoming.length}):**\n${lines.join('\n')}` +
+        (upcoming.length > 15 ? `\n*…and ${upcoming.length - 15} more*` : '')
+      : '\n\n*No upcoming songs.*');
+
+  const embed = new EmbedBuilder()
+    .setColor(0x6366f1)
+    .setTitle(`🎵 Queue${loopIndicator}`)
+    .setDescription(description)
+    .setFooter({ text: `${serverQueue.songs.length} total • use the menu below to manage tracks` });
+
+  const components = [];
+  if (upcoming.length > 0) {
+    const options = upcoming.slice(0, 25).map((s, i) => ({
+      label: s.title.length > 100 ? s.title.slice(0, 97) + '...' : s.title,
+      description: s.duration ? `${formatTime(s.duration)} • position ${i + 1}` : `position ${i + 1}`,
+      value: s.id,
+    }));
+    const select = new StringSelectMenuBuilder()
+      .setCustomId('queue_pick')
+      .setPlaceholder('Pick a song to manage...')
+      .addOptions(options);
+    components.push(new ActionRowBuilder().addComponents(select));
+  }
+  return { embed, components };
 }
 
 // ──── Embed / time helpers ────
@@ -1210,7 +1350,11 @@ function buildProgressBar(elapsed, duration, length = 20) {
 
 // Send or edit the live "Now Playing" message. Posts a new one if the channel
 // has changed, otherwise edits the existing one. Also (re)starts the live ticker.
-function nowPlayingComponents() {
+function nowPlayingComponents(serverQueue) {
+  const loopMode = serverQueue?.loop;
+  const loopLabel = loopMode === 'song' ? '🔂 Song' : loopMode === 'queue' ? '🔁 Queue' : '🔁 Loop';
+  const loopStyle = loopMode ? ButtonStyle.Success : ButtonStyle.Secondary;
+
   // Row 1: seek controls
   const seekRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('np_seek:-30').setLabel('⏪ 30s').setStyle(ButtonStyle.Secondary),
@@ -1219,13 +1363,20 @@ function nowPlayingComponents() {
     new ButtonBuilder().setCustomId('np_seek:10').setLabel('10s ⏩').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('np_seek:30').setLabel('30s ⏩').setStyle(ButtonStyle.Secondary),
   );
-  // Row 2: queue actions
-  const actionRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('music_skip').setLabel('Skip').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('music_queue').setLabel('Queue').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId('music_stop').setLabel('Stop').setStyle(ButtonStyle.Danger),
+  // Row 2: playback toggles
+  const playbackRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('music_skip').setLabel('⏭️ Skip').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('np_loop').setLabel(loopLabel).setStyle(loopStyle),
+    new ButtonBuilder().setCustomId('np_shuffle').setLabel('🔀 Shuffle').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('np_vol:-10').setLabel('🔉 -10').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('np_vol:10').setLabel('🔊 +10').setStyle(ButtonStyle.Secondary),
   );
-  return [seekRow, actionRow];
+  // Row 3: queue & stop
+  const actionRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('music_queue').setLabel('📋 Queue').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('music_stop').setLabel('⏹️ Stop').setStyle(ButtonStyle.Danger),
+  );
+  return [seekRow, playbackRow, actionRow];
 }
 
 // Delete the previous Now Playing message (if any) and send a fresh one at the bottom.
@@ -1241,7 +1392,7 @@ async function postFreshNowPlaying(serverQueue, song) {
 
   const payload = {
     embeds: [buildNowPlayingEmbed(song, serverQueue)],
-    components: nowPlayingComponents(),
+    components: nowPlayingComponents(serverQueue),
   };
 
   try {
@@ -1261,7 +1412,7 @@ async function showOrUpdateNowPlaying(serverQueue, song) {
 
   const payload = {
     embeds: [buildNowPlayingEmbed(song, serverQueue)],
-    components: nowPlayingComponents(),
+    components: nowPlayingComponents(serverQueue),
   };
 
   try {
@@ -1295,7 +1446,7 @@ function startNowPlayingTicker(serverQueue) {
     try {
       await serverQueue.nowPlayingMessage.edit({
         embeds: [buildNowPlayingEmbed(song, serverQueue)],
-        components: nowPlayingComponents(),
+        components: nowPlayingComponents(serverQueue),
       });
     } catch (err) {
       stopNowPlayingTicker(serverQueue);
