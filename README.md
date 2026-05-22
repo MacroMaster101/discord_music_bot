@@ -17,7 +17,7 @@ A powerful, self-hostable Discord music bot that streams audio from YouTube with
 | 🎛️ **Interactive Controls** | In-chat buttons: **Play Now**, **Skip**, **Queue**, **Stop** — no need to type commands |
 | 📋 **Queue Picker** | A select-menu on queue messages lets you **Play Now**, **Move to Top**, or **Remove** any song |
 | ❓ **Help Command** | Rich embed help menu (`!help`) showing all commands grouped by category with aliases |
-| 🎙️ **Rotating Status** | Bot status cycles every 12s between idle prompts (`!play`, `!help`, `💿 Spinning Virtual Vinyl`, `🎤 Ready to Drop the Bass`, `🏆 The Ultimate DJ Battle`) and live playback info (`🎶 Now Playing`, `📋 Queue`, `🔊 Room`, `🔥 Dropping Beats`, `!np`) when in voice |
+| 🎙️ **Rotating Status** | Bot status cycles every 12s between idle prompts (`!play`, `!help`, `💿 Spinning Virtual Vinyl`, `🎤 Ready to Drop the Bass`, `🏆 The Ultimate DJ Battle`) and live playback info with a **purple LIVE Streaming badge** (`🎶 Now Playing`, `📋 Queue`, `🔊 Room`, `🔥 Dropping Beats`, `!np`) — each clickable and linking to the current YouTube track |
 | ⏸️ **Pause & Resume** | Pause and resume playback at any time |
 | 🔊 **Volume Control** | Adjust playback volume from 0–100% |
 | 🔂 **Loop Modes** | Loop a single song, the entire queue, or disable looping |

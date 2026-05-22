@@ -1109,7 +1109,8 @@ function getPresenceActivities() {
   }
 
   if (activeQueue && activeQueue.songs[0]) {
-    const songTitle = activeQueue.songs[0].title;
+    const song = activeQueue.songs[0];
+    const songTitle = song.title;
     const title = songTitle.length > 50
       ? songTitle.slice(0, 47) + '...'
       : songTitle;
@@ -1117,12 +1118,17 @@ function getPresenceActivities() {
     const queueCount = activeQueue.songs.length;
     const vcName = activeQueue.voiceChannel?.name || 'Voice Room';
 
+    // Use the song's YouTube URL for Streaming type (purple LIVE badge + clickable link)
+    const streamUrl = song.url && song.url.includes('youtube.com')
+      ? song.url
+      : 'https://www.youtube.com';
+
     return [
-      { name: `🎶 ${title}`, type: ActivityType.Listening },
-      { name: `📋 Queue | ${queueCount} track(s)`, type: ActivityType.Watching },
-      { name: `🔊 Room | ${vcName}`, type: ActivityType.Watching },
-      { name: `🔥 Dropping Beats Non-Stop`, type: ActivityType.Playing },
-      { name: `!np 🔎 for info`, type: ActivityType.Listening },
+      { name: `🎶 ${title}`, type: ActivityType.Streaming, url: streamUrl },
+      { name: `📋 Queue | ${queueCount} track(s)`, type: ActivityType.Streaming, url: streamUrl },
+      { name: `🔊 Room | ${vcName}`, type: ActivityType.Streaming, url: streamUrl },
+      { name: `🔥 Dropping Beats Non-Stop`, type: ActivityType.Streaming, url: streamUrl },
+      { name: `!np 🔎 for info`, type: ActivityType.Streaming, url: streamUrl },
     ];
   }
 
