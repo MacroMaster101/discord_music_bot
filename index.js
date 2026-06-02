@@ -32,7 +32,13 @@ const {
 } = require('@discordjs/voice');
 
 const ytSearch = require('yt-search');
-const youtubedl = require('youtube-dl-exec');
+const youtubedlPkg = require('youtube-dl-exec');
+// Prefer system-installed yt-dlp (kept up-to-date in Docker) over the
+// bundled binary inside node_modules which can be months out of date.
+const YTDLP_SYSTEM_PATH = '/usr/local/bin/yt-dlp';
+const youtubedl = fs.existsSync(YTDLP_SYSTEM_PATH)
+  ? youtubedlPkg.create(YTDLP_SYSTEM_PATH)
+  : youtubedlPkg;
 
 // Stats tracking (in-memory, resets on restart)
 const stats = {
