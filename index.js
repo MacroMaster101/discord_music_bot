@@ -175,7 +175,11 @@ client.once('ready', async () => {
 
   // Start the web dashboard and statistics API server
   try {
-    startDashboardServer(client, queue, { getBotStats, getQueueProgress, seek });
+    startDashboardServer(client, queue, {
+      getBotStats, getQueueProgress, seek,
+      pauseResumeCore, skipCore, stopCore, restartCore, volumeCore,
+      loopCore, shuffleCore, removeCore, moveCore, clearCore, addCore,
+    });
   } catch (err) {
     console.error('Could not start Web Dashboard Server:', err);
   }
@@ -1648,77 +1652,49 @@ function setVolume(message, serverQueue, args) {
   if (isNaN(vol) || vol < 0 || vol > 100) {
     return message.reply('❌ Volume must be a number between 0 and 100.');
   }
-
-  const resource = serverQueue.player.state?.resource;
-  serverQueue.targetVolume = vol / 100;
-  if (resource?.volume) {
-    resource.volume.setVolume(vol / 100);
-    message.reply(`🔊 Volume set to **${vol}%**`);
-  } else {
-    message.reply('❌ Cannot adjust volume right now.');
-  }
+  const guildId = serverQueue?.textChannel?.guild?.id || message.guild.id;
+  const r = volumeCore(guildId, vol);
+  message.reply(r.ok ? `🔊 Volume set to **${r.volume}%**` : '❌ ' + r.error);
 }
 
 // ──── Shuffle ────
 function shuffle(message, serverQueue) {
-  if (!serverQueue || serverQueue.songs.length < 3) {
-    return message.reply('❌ Not enough songs in the queue to shuffle! (Need at least 2 upcoming songs)');
-  }
-
-  const upcoming = serverQueue.songs.slice(1);
-  for (let i = upcoming.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [upcoming[i], upcoming[j]] = [upcoming[j], upcoming[i]];
-  }
-  serverQueue.songs = [serverQueue.songs[0], ...upcoming];
-  message.reply(`🔀 Shuffled **${upcoming.length}** songs in the queue!`);
+  const guildId = serverQueue?.textChannel?.guild?.id || message.guild.id;
+  const r = shuffleCore(guildId);
+  if (!r.ok) return message.reply('❌ ' + r.error);
+  message.reply(`🔀 Shuffled **${r.count}** songs in the queue!`);
 }
 
 // ──── Remove ────
 function removeSong(message, serverQueue, args) {
-  if (!serverQueue || !serverQueue.songs.length) {
-    return message.reply('❌ Queue is empty!');
-  }
-
-  const pos = parseInt(args[0], 10);
-  if (isNaN(pos) || pos < 1 || pos >= serverQueue.songs.length) {
-    return message.reply(`❌ Invalid position! Use a number between 1 and ${serverQueue.songs.length - 1}.`);
-  }
-
-  const removed = serverQueue.songs.splice(pos, 1)[0];
-  message.reply(`🗑️ Removed **${removed.title}** from position ${pos}.`);
+  const guildId = serverQueue?.textChannel?.guild?.id || message.guild.id;
+  const r = removeCore(guildId, parseInt(args[0], 10));
+  if (!r.ok) return message.reply('❌ ' + r.error);
+  message.reply(`🗑️ Removed **${r.title}**.`);
 }
 
 // ──── Loop ────
 function loopCommand(message, serverQueue, args) {
-  if (!serverQueue) return message.reply('❌ Nothing is playing!');
-
+  const guildId = serverQueue?.textChannel?.guild?.id || message.guild.id;
+  const sq = queue.get(guildId);
+  if (!sq) return message.reply('❌ Nothing is playing!');
   const mode = (args[0] || '').toLowerCase();
   const MODES = ['off', 'song', 'queue'];
-
   if (mode && MODES.includes(mode)) {
-    serverQueue.loop = mode === 'off' ? null : mode;
+    sq.loop = mode === 'off' ? null : mode;
   } else {
-    // Cycle: off → song → queue → off
-    if (!serverQueue.loop) serverQueue.loop = 'song';
-    else if (serverQueue.loop === 'song') serverQueue.loop = 'queue';
-    else serverQueue.loop = null;
+    loopCore(guildId);
   }
-
   const labels = { song: '🔂 Looping current song', queue: '🔁 Looping entire queue' };
-  const label = labels[serverQueue.loop] || '➡️ Loop disabled';
-  message.reply(label);
+  message.reply(labels[sq.loop] || '➡️ Loop disabled');
 }
 
 // ──── Clear Queue ────
 function clearQueue(message, serverQueue) {
-  if (!serverQueue || serverQueue.songs.length <= 1) {
-    return message.reply('❌ No upcoming songs to clear!');
-  }
-
-  const count = serverQueue.songs.length - 1;
-  serverQueue.songs = [serverQueue.songs[0]];
-  message.reply(`🗑️ Cleared **${count}** song(s) from the queue.`);
+  const guildId = serverQueue?.textChannel?.guild?.id || message.guild.id;
+  const r = clearCore(guildId);
+  if (!r.ok) return message.reply('❌ ' + r.error);
+  message.reply(`🗑️ Cleared **${r.count}** song(s) from the queue.`);
 }
 
 // ──── Move ────
@@ -2040,6 +2016,10 @@ function getQueueProgress(serverQueue) {
   };
 }
 
-module.exports = { getBotStats, getQueueProgress, seek };
+module.exports = {
+  getBotStats, getQueueProgress, seek,
+  pauseResumeCore, skipCore, stopCore, restartCore, volumeCore,
+  loopCore, shuffleCore, removeCore, moveCore, clearCore, addCore,
+};
 
 client.login(TOKEN);
