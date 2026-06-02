@@ -109,19 +109,26 @@ if (tempCookiesPath) {
 
 function getYtdlpBaseOptions(playerClientOverride) {
   const playerClient = playerClientOverride || PLAYER_CLIENT_CHAINS[0];
+  // bgutil PO-token provider base URL (sidecar on the compose network).
+  // Override via BGUTIL_BASE_URL if the service name/port differs.
+  const bgutilBaseUrl = process.env.BGUTIL_BASE_URL || 'http://bgutil-provider:4416';
   const opts = {
     noCheckCertificates: true,
     noWarnings: true,
     noPlaylist: true,
     noCheckFormats: true,
+    // Modern yt-dlp YouTube extraction needs a JS runtime; deno is baked into the image.
+    jsRuntimes: 'deno',
     addHeader: [
       'referer:https://www.youtube.com/',
     ],
-    extractorArgs: `youtube:player_client=${playerClient}`,
+    extractorArgs:
+      `youtube:player_client=${playerClient};getpot_bgutil_baseurl=${bgutilBaseUrl}`,
   };
   if (tempCookiesPath) {
     opts.cookies = tempCookiesPath;
   }
+  // Legacy manual PO token still honored if explicitly set (auto-provider preferred).
   if (YTDLP_PO_TOKEN) {
     opts.extractorArgs += `;po_token=web+${YTDLP_PO_TOKEN}`;
   }

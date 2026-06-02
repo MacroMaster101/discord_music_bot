@@ -3,8 +3,19 @@ services:
     build: .
     container_name: discord-music-bot
     restart: unless-stopped
+    depends_on:
+      - bgutil-provider
     ports:
       - "8080:8080"
     volumes:
       - ./data:/app/data
       - ./.env:/app/.env
+
+  bgutil-provider:
+    image: brainicism/bgutil-ytdlp-pot-provider:latest
+    container_name: bgutil-provider
+    restart: unless-stopped
+    # Provider listens on 4416 inside the compose network.
+    # Not published to the host — only the bot needs to reach it.
+    expose:
+      - "4416"
