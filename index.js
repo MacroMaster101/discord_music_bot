@@ -714,7 +714,6 @@ async function bootstrapAndPlay(message, voiceChannel, song, statusMsg) {
       } catch {
         const currentQueue = queue.get(guildId);
         if (currentQueue && !currentQueue.stopped) {
-          console.warn('🔌 [DIAG] Voice connection dropped & did not recover → teardown (this is the "dc")');
           currentQueue.textChannel.send('❌ Lost voice connection. Stopping playback.').catch(() => {});
           teardownQueue(guildId, currentQueue, true);
         } else {
@@ -1915,7 +1914,6 @@ function seek(guildId, seconds) {
   if (!serverQueue) return { ok: false, error: 'No active queue for that guild.' };
   const song = serverQueue.songs[0];
   if (!song) return { ok: false, error: 'Nothing is playing.' };
-  console.warn(`🔵 [DIAG] seek requested → ${seconds}s (playToken=${serverQueue.playToken})`);
 
   let target = Math.floor(Number(seconds));
   if (!Number.isFinite(target) || target < 0) target = 0;
