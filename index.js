@@ -727,15 +727,25 @@ async function bootstrapAndPlay(message, voiceChannel, song, statusMsg) {
 
   queueConstruct.player.on(AudioPlayerStatus.Idle, async () => {
     if (queueConstruct.stopped) return;
-    // Ignore the Idle caused by our own seek/restart killing the old ffmpeg.
-    if (queueConstruct.restarting) return;
-    advanceQueue(guildId, queueConstruct, false);
+    // A restart is in flight when the latest playToken hasn't gone live yet
+    // (token bumped, but player.play() for it not reached). The Idle we see is
+    // from the killed/superseded stream — ignore it.
+    if (queueConstruct.playToken !== queueConstruct.activePlayToken) return;
+    // Defensive: confirm still Idle on the next tick (a fresh stream may be
+    // starting). If the player is Playing again, this was a restart artifact.
+    const tokenAtIdle = queueConstruct.activePlayToken;
+    setTimeout(() => {
+      if (queueConstruct.stopped) return;
+      if (queueConstruct.activePlayToken !== tokenAtIdle) return; // superseded
+      if (queueConstruct.player.state.status !== AudioPlayerStatus.Idle) return; // playing again
+      advanceQueue(guildId, queueConstruct, false);
+    }, 150);
   });
 
   queueConstruct.player.on('error', async (error) => {
     if (queueConstruct.stopped) return;
-    // Ignore errors from the old stream being torn down during a seek/restart.
-    if (queueConstruct.restarting) return;
+    // Ignore errors from a superseded stream being torn down during a restart.
+    if (queueConstruct.playToken !== queueConstruct.activePlayToken) return;
     console.error('Player error:', error.message || error);
     queueConstruct.textChannel.send('❌ Playback error, skipping...').catch(() => {});
     advanceQueue(guildId, queueConstruct, true);
@@ -899,11 +909,13 @@ async function playSong(guildId, song, seekSeconds = 0) {
 
   try {
     clearIdleDisconnect(serverQueue);
-    // Killing the old ffmpeg below makes the player emit Idle. Mark that we're
-    // deliberately restarting so the Idle handler doesn't treat it as
-    // "song finished" and advance/drop the queue (caused seeks — especially
-    // backward — to stop the song).
-    serverQueue.restarting = true;
+    // Bump a generation token for this playback. Killing the old ffmpeg below
+    // makes the player emit Idle/error from the SUPERSEDED stream; those stale
+    // events carry the old token and must be ignored, or a seek (especially a
+    // rapid forward-then-back) advances/drops the queue and stops the song.
+    // A monotonic token is race-free where a boolean "restarting" flag was not.
+    serverQueue.playToken = (serverQueue.playToken || 0) + 1;
+    const myToken = serverQueue.playToken;
     cleanupCurrentProcess(serverQueue);
     serverQueue.currentSongId = song.id;
     serverQueue.advancingSongId = null;
@@ -971,8 +983,10 @@ async function playSong(guildId, song, seekSeconds = 0) {
     serverQueue.targetVolume = vol;
     resource.volume?.setVolume(vol);
     serverQueue.player.play(resource);
-    // New stream is live; allow the next genuine Idle to advance the queue again.
-    serverQueue.restarting = false;
+    // Mark this token as the live stream. A later Idle/error advances the queue
+    // ONLY if it belongs to this same token; events from a superseded (killed)
+    // stream carry an older token and are ignored.
+    serverQueue.activePlayToken = myToken;
     updatePresence(true, song.title);
     setVoiceChannelStatus(serverQueue.voiceChannel.id, `🎵 ${song.title}`);
 
@@ -988,8 +1002,9 @@ async function playSong(guildId, song, seekSeconds = 0) {
     console.log(`▶️ Playing: ${song.title}${seekSeconds ? ` (from ${seekSeconds}s)` : ''}`);
     return true;
   } catch (err) {
-    // Clear the restart guard so a failed seek doesn't freeze future advances.
-    serverQueue.restarting = false;
+    // Sync the active token so future Idle events aren't permanently suppressed
+    // after a failed (seek-)restart.
+    serverQueue.activePlayToken = myToken;
     const technicalReason = getTechnicalErrorMessage(err);
     const publicReason = getPublicPlayErrorMessage(technicalReason);
     console.error('Play error:', technicalReason);
