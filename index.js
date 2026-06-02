@@ -107,7 +107,6 @@ function getYtdlpBaseOptions(playerClientOverride) {
     noCheckCertificates: true,
     noWarnings: true,
     noPlaylist: true,
-    preferFreeFormats: true,
     noCheckFormats: true,
     addHeader: [
       'referer:https://www.youtube.com/',
