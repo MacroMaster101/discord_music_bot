@@ -76,11 +76,15 @@ let presenceInterval = null;
 const PRESENCE_ROTATE_MS = 12000;
 
 // Player client fallback chains — tried in order when YouTube blocks a request
+// Order matters: lead with clients whose googlevideo stream URLs actually
+// download from a datacenter IP. web_embedded extracts but its media 403s,
+// so it is no longer first. mweb + android_vr (default) download cleanly with
+// the bgutil WEB PO token; web_embedded kept last as a fallback.
 const PLAYER_CLIENT_CHAINS = [
-  'web_safari,web_embedded,default',
   'mweb,default',
+  'default',
   'tv_simply,default,-tv',
-  'web,default',
+  'web_embedded,default',
 ];
 
 if (!TOKEN) {
@@ -670,6 +674,11 @@ async function bootstrapAndPlay(message, voiceChannel, song, statusMsg) {
     songs: [],
   };
 
+  // Enqueue the song IMMEDIATELY, before the (up to 20s) voice-connection await
+  // below. Otherwise a second !play arriving during connection setup sees an
+  // empty queue and starts a racing playback, causing the current song to
+  // stutter/restart.
+  queueConstruct.songs.push(song);
   queue.set(guildId, queueConstruct);
 
   let connection;
@@ -737,7 +746,7 @@ async function bootstrapAndPlay(message, voiceChannel, song, statusMsg) {
     return;
   }
 
-  queueConstruct.songs.push(song);
+  // Song was already pushed before the connection await (see above).
   try { await statusMsg.delete(); } catch {}
   await playSong(guildId, song);
 }
