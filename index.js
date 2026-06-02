@@ -1909,6 +1909,98 @@ function getBotStats() {
 
 // Seek the currently-playing song in a guild to an absolute position (seconds).
 // Reuses the same logic as the np_seek buttons. Returns a result for the HTTP layer.
+// ───── Guild-id control cores (used by web dashboard hooks AND Discord cmds) ─────
+function pauseResumeCore(guildId) {
+  const sq = queue.get(guildId);
+  if (!sq) return { ok: false, error: 'Nothing is playing.' };
+  const paused = sq.player.state.status === AudioPlayerStatus.Paused;
+  if (paused) sq.player.unpause(); else sq.player.pause();
+  return { ok: true, paused: !paused };
+}
+function skipCore(guildId) {
+  const sq = queue.get(guildId);
+  if (!sq) return { ok: false, error: 'Nothing is playing.' };
+  skipQueue(sq);
+  return { ok: true };
+}
+function stopCore(guildId) {
+  const sq = queue.get(guildId);
+  if (!sq) return { ok: false, error: 'Nothing is playing.' };
+  stopQueue(guildId, sq);
+  return { ok: true };
+}
+function restartCore(guildId) {
+  return seek(guildId, 0);
+}
+function volumeCore(guildId, percent) {
+  const sq = queue.get(guildId);
+  if (!sq) return { ok: false, error: 'Nothing is playing.' };
+  let v = Math.floor(Number(percent));
+  if (!Number.isFinite(v)) return { ok: false, error: 'Bad volume.' };
+  v = Math.max(0, Math.min(200, v));
+  sq.targetVolume = v / 100;
+  const resource = sq.player.state?.resource;
+  if (resource?.volume) resource.volume.setVolume(v / 100);
+  return { ok: true, volume: v };
+}
+function loopCore(guildId) {
+  const sq = queue.get(guildId);
+  if (!sq) return { ok: false, error: 'Nothing is playing.' };
+  if (!sq.loop) sq.loop = 'song';
+  else if (sq.loop === 'song') sq.loop = 'queue';
+  else sq.loop = null;
+  return { ok: true, loop: sq.loop || 'off' };
+}
+function shuffleCore(guildId) {
+  const sq = queue.get(guildId);
+  if (!sq || sq.songs.length < 3) return { ok: false, error: 'Need at least 2 upcoming songs.' };
+  const up = sq.songs.slice(1);
+  for (let i = up.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [up[i], up[j]] = [up[j], up[i]];
+  }
+  sq.songs = [sq.songs[0], ...up];
+  return { ok: true, count: up.length };
+}
+function removeCore(guildId, index) {
+  const sq = queue.get(guildId);
+  if (!sq) return { ok: false, error: 'Nothing is playing.' };
+  const pos = Math.floor(Number(index));
+  if (!Number.isFinite(pos) || pos < 1 || pos >= sq.songs.length) {
+    return { ok: false, error: 'Invalid position.' };
+  }
+  const removed = sq.songs.splice(pos, 1)[0];
+  return { ok: true, title: removed?.title };
+}
+function moveCore(guildId, from, to) {
+  const sq = queue.get(guildId);
+  if (!sq) return { ok: false, error: 'Nothing is playing.' };
+  const f = Math.floor(Number(from)), t = Math.floor(Number(to));
+  const last = sq.songs.length - 1;
+  if ([f, t].some((n) => !Number.isFinite(n) || n < 1 || n > last)) {
+    return { ok: false, error: 'Invalid move positions.' };
+  }
+  const [moved] = sq.songs.splice(f, 1);
+  sq.songs.splice(t, 0, moved);
+  return { ok: true };
+}
+function clearCore(guildId) {
+  const sq = queue.get(guildId);
+  if (!sq || sq.songs.length <= 1) return { ok: false, error: 'No upcoming songs.' };
+  const count = sq.songs.length - 1;
+  sq.songs = [sq.songs[0]];
+  return { ok: true, count };
+}
+async function addCore(guildId, query) {
+  const sq = queue.get(guildId);
+  if (!sq) return { ok: false, error: 'Start playback in Discord first (no active session).' };
+  if (!query || !String(query).trim()) return { ok: false, error: 'Empty query.' };
+  const song = await getSongFromUrl(String(query).trim());
+  if (!song) return { ok: false, error: 'Could not find that song.' };
+  sq.songs.push(song);
+  return { ok: true, title: song.title };
+}
+
 function seek(guildId, seconds) {
   const serverQueue = queue.get(guildId);
   if (!serverQueue) return { ok: false, error: 'No active queue for that guild.' };
