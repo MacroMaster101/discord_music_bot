@@ -7,5 +7,6 @@ node_modules/
 cookies.txt
 cookies_base64.txt
 .claude/
+.superpowers/
 data/
 docs/
