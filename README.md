@@ -1,6 +1,6 @@
 # 🎵 J4FN MUSIC — Discord Music Bot 🎧
 
-A premium, self-hostable Discord music player featuring a high-tech glassmorphic web dashboard, robust anti-bot bypass mechanisms, interactive message buttons, and automatic voice channel management. 🎧✨
+A premium, self-hostable Discord music player featuring a glassmorphic web dashboard with full remote playback controls, robust anti-bot bypass (deno + automatic PO-token provider), interactive message buttons, and automatic voice channel management. 🎧✨
 
 ![Node.js](https://img.shields.io/badge/Node.js-22.12+-339933?logo=node.js&logoColor=white)
 ![discord.js](https://img.shields.io/badge/discord.js-14.x-5865F2?logo=discord&logoColor=white)
@@ -11,132 +11,140 @@ A premium, self-hostable Discord music player featuring a high-tech glassmorphic
 
 ## ✨ Key Features 🚀
 
-- 📊 **Web Dashboard** — Premium dark-mode status page featuring live-ticking uptime, system specs, memory telemetry, active stream details, and real-time dashboard configurations.
-- 🎵 **Advanced Playback** — Play music via search query or direct URL (supports `youtube.com`, `youtu.be`, `/shorts/`, `/live/`).
-- 🔍 **Interactive Search** — The `!search` command lets you pick from the top 5 YouTube results using active Discord buttons.
-- 📂 **Playlist Handler** — Stream complete YouTube playlists (up to 100 tracks in a single query) via `!playlist`.
-- 🎤 **Lyrics Lookup** — Look up exact song lyrics in real-time using the `!lyrics` command.
-- 🎛️ **Interactive Controls** — Tap in-chat control buttons to pause, play, seek, adjust volume, and list queues.
-- ⚙️ **Custom Configuration** — Configure custom prefixes, default volume, and voice timeout policies globally or per-server via the web dashboard.
-- 🤖 **Anti-Bot Bypass** — Automatic player-client fallback chains, Netscape cookie parsers, base64 encoding support, and PO token support to bypass YouTube blocks.
-- ⏱️ **Auto Voice Manager** — Leaves empty rooms automatically and pauses playback when alone to conserve bandwidth.
+- 📊 **Web Dashboard** — Dark-mode dashboard with live-ticking uptime, system telemetry, real-time progress bars, and per-server configuration.
+- 🎛️ **Full Web Remote** — Drive the bot from the browser: play/pause, restart, skip, stop, ±10s, **click-to-seek**, loop, shuffle, volume, queue management (reorder/remove/clear), and add songs by URL or search. All control actions are gated by an admin token.
+- 🎵 **Advanced Playback** — Play via search query or direct URL (`youtube.com`, `youtu.be`, `/shorts/`, `/live/`).
+- 🔍 **Interactive Search** — `!search` lets you pick from the top 5 YouTube results with Discord buttons.
+- 📂 **Playlist Handler** — Queue full YouTube playlists via `!playlist`.
+- 🎤 **Lyrics Lookup** — `!lyrics` fetches lyrics for the current song.
+- 🎛️ **In-Chat Controls** — Tap message buttons to pause, skip, seek, adjust volume, and view the queue.
+- 🤖 **Anti-Bot Bypass** — deno JS runtime + an automatic **PO-token provider** sidecar, player-client fallback chains, and optional YouTube cookies, to get past "confirm you're not a bot" blocks on datacenter IPs.
+- ⏱️ **Auto Voice Manager** — Leaves empty rooms and pauses playback when alone.
 
 ---
 
-## 🛠️ Engine & Tech Stack 📦
-
-Our lightweight and high-performance server engine is built on:
+## 🛠️ Tech Stack 📦
 
 | Component | Technology | Purpose |
 | :--- | :--- | :--- |
-| 🎙️ **Voice Controller** | `@discordjs/voice` | Low-latency audio packet streaming and UDP transport |
-| 🎬 **Media Streamer** | `youtube-dl-exec` | Active `yt-dlp` wrapper providing advanced anti-bot bypass |
-| 🔍 **Search Engine** | `yt-search` | Fast YouTube search-by-keyword indexer |
-| 🎛️ **Audio Transcoder** | `ffmpeg-static` + `opusscript` | Portable audio transcoding and high-fidelity Opus compression |
-| 🖥️ **Dashboard Server** | Native Node.js `http` | Ultra-lightweight telemetry API and UI server |
+| 🎙️ **Voice** | `@discordjs/voice` | Low-latency Opus audio streaming over UDP |
+| 🎬 **Media Extractor** | `yt-dlp` (via `youtube-dl-exec`) | YouTube extraction with anti-bot bypass |
+| 🧩 **JS Runtime** | `deno` | Required by modern yt-dlp YouTube extraction |
+| 🔐 **PO Tokens** | `bgutil-ytdlp-pot-provider` (sidecar) | Auto-mints Proof-of-Origin tokens — no manual refresh |
+| 🔍 **Search** | `yt-search` | YouTube search-by-keyword |
+| 🎚️ **Transcoder** | system `ffmpeg` + `opusscript` | Audio transcoding + Opus encoding |
+| 🖥️ **Dashboard** | Native Node.js `http` | Telemetry API, control API, and UI server |
+
+> The Docker image installs system `ffmpeg` and removes the bundled `ffmpeg-static` binary to save space.
 
 ---
 
 ## 🎮 Command List 🎚️
 
-Configure commands using your server's custom prefix (default: `!`).
+Commands use your server's prefix (default: `!`).
 
-### 🎶 Playback Controls
-- `!play <query / URL>` (`!p`) — 🎵 Search and stream a song, or append to queue.
-- `!search <query>` (`!sr`) — 🔍 Search YouTube and choose from top 5 results.
-- `!playlist <URL>` (`!pl`) — 📂 Load and queue a full YouTube playlist.
-- `!pause` — ⏸️ Pause the current track.
-- `!resume` (`!unpause`) — ▶️ Resume playback.
-- `!skip` (`!s`) — ⏩ Skip the current song.
-- `!seek <time>` — ⏱️ Jump to a timestamp (e.g. `1:30` or `90`).
-- `!stop` (`!dc`) — ⏹️ Clear the queue and disconnect from the voice channel.
-- `!nowplaying` (`!np`) — 📻 Show rich details and control buttons for the current track.
-- `!lyrics` (`!ly`) — 🎤 Display lyrics for the current song.
+### 🎶 Playback
+- `!play <query / URL>` (`!p`) — Search and stream a song, or append to queue.
+- `!search <query>` (`!sr`) — Search YouTube and choose from the top 5.
+- `!playlist <URL>` (`!pl`) — Load and queue a full YouTube playlist.
+- `!pause` / `!resume` (`!unpause`) — Pause / resume.
+- `!skip` (`!s`) — Skip the current song.
+- `!seek <time>` — Jump to a timestamp (e.g. `1:30` or `90`).
+- `!stop` (`!dc`) — Clear the queue and disconnect.
+- `!nowplaying` (`!np`) — Show the current track with control buttons.
+- `!lyrics` (`!ly`) — Display lyrics for the current song.
 
-### 📋 Queue Management
-- `!queue` (`!q`) — 📋 View upcoming tracks.
-- `!shuffle` — 🔀 Shuffle the order of upcoming songs.
-- `!remove <number>` — 🗑️ Remove a song from the queue.
-- `!move <from> <to>` (`!mv`) — 🔄 Reorder queue tracks.
-- `!clear` — ❌ Empty the upcoming queue.
+### 📋 Queue
+- `!queue` (`!q`) — View upcoming tracks.
+- `!shuffle` — Shuffle the upcoming songs.
+- `!remove <number>` — Remove a queued song.
+- `!move <from> <to>` (`!mv`) — Reorder tracks.
+- `!clear` — Empty the upcoming queue.
 
-### ⚙️ Server Settings
-- `!volume <0-100>` (`!vol`) — 🔊 Read or update playback volume.
-- `!loop [off | song | queue]` — 🔁 Toggle loops (cycles: off → song → queue).
-
----
-
-## 🐳 Deployment & Hosting 🌐
-
-### AWS EC2 & Docker Compose (Recommended) 🚀
-
-Host this bot concurrently alongside your other bots on a single AWS EC2 instance:
-
-#### 1. Setup the Server 🖥️
-1. Connect to your EC2 instance via SSH:
-   ```bash
-   ssh -i bot-key.pem ubuntu@13.212.35.227
-   ```
-2. Navigate to your home directory and clone the repository:
-   ```bash
-   cd ~
-   git clone https://github.com/MacroMaster101/discord_music_bot.git
-   ```
-3. Navigate into the folder:
-   ```bash
-   cd ~/discord_music_bot
-   ```
-4. Initialize the environment variables:
-   ```bash
-   cp .env.example .env
-   nano .env
-   ```
-   Add your active Discord `TOKEN` and custom dashboard `ADMIN_TOKEN`. Save and exit (`Ctrl + O`, `Enter`, `Ctrl + X`).
-5. Run the container cluster:
-   ```bash
-   docker compose up -d --build
-   ```
-
-#### 2. Configure GitHub CI/CD Pipeline 🚀
-To trigger automated server deployments upon push to the `main` branch, add the following as **Repository Secrets** (**Settings** -> **Secrets and variables** -> **Actions**):
-- `EC2_HOST`: `13.212.35.227`
-- `EC2_USERNAME`: `ubuntu`
-- `EC2_SSH_KEY`: The entire content of your private key file (`bot-key.pem`).
-
-#### 3. Inbound Security Group Rule 🔒
-In the AWS Console, edit your instance's active security group (`launch-wizard-1`):
-- Add a new **Custom TCP** inbound rule for port **8082**.
-- Set **Source** to `Anywhere` (`0.0.0.0/0`) or your trusted IP network.
-
-Access the live glassmorphic dashboard at:
-`http://13.212.35.227:8082`
+### ⚙️ Settings
+- `!volume <0-100>` (`!vol`) — Read or set playback volume.
+- `!loop [off | song | queue]` — Cycle loop mode.
 
 ---
 
-### Local Setup 💻
-1. Clone the repository and install dependencies:
-   ```bash
-   npm ci
-   ```
-2. Initialize environment file and add secrets:
-   ```bash
-   cp .env.example .env
-   ```
-3. Start the application:
-   ```bash
-   npm start
-   ```
+## ⚙️ Configuration
+
+Copy `.env.example` to `.env` and fill in:
+
+| Variable | Required | Purpose |
+| :--- | :--- | :--- |
+| `TOKEN` | ✅ | Discord bot token. |
+| `ADMIN_TOKEN` | recommended | Protects dashboard editing **and all web playback controls**. Pick a long random string. |
+| `PORT` | optional | Dashboard HTTP port (default `8080`). |
+| `BGUTIL_BASE_URL` | optional | PO-token provider URL (defaults to the compose sidecar `http://bgutil-provider:4416`). |
+| `YTDLP_COOKIES_PATH` / `YTDLP_COOKIES_BASE64` | optional | YouTube cookies (path or base64) to unlock login-restricted videos. |
 
 ---
 
-## 🍪 Anti-Bot & YouTube Cookies 🛡️
+## 🐳 Deployment — Docker Compose (Recommended)
 
-If YouTube begins throttling connections or throwing "Sign in to confirm you're not a bot" errors:
-1. Extract your active YouTube session cookies using a browser extension (such as *Get cookies.txt LOCALLY*).
-2. Save the cookies as a Netscape-format text file.
-3. Encode the file content to base64 (e.g. `base64 cookies.txt`) and set it as `YTDLP_COOKIES_BASE64` in your `.env` file.
+The stack runs **two containers**: the bot and the `bgutil-provider` PO-token sidecar.
 
-Our custom fallback engine will automatically feed these credentials to `yt-dlp` to bypass verification checks.
+### 1. On your server (e.g. an Ubuntu EC2 instance)
+
+```bash
+# Install Docker + compose + git (Ubuntu)
+sudo apt-get update && sudo apt-get install -y docker.io docker-compose-v2 git \
+  && sudo usermod -aG docker $USER && sudo systemctl enable --now docker
+# log out / back in so the docker group applies
+
+git clone https://github.com/MacroMaster101/discord_music_bot.git ~/discord_music_bot
+cd ~/discord_music_bot
+mkdir -p data
+
+cp .env.example .env
+nano .env            # set TOKEN and ADMIN_TOKEN
+
+docker compose up -d --build
+docker compose logs -f      # confirm "is online!"
+```
+
+The dashboard is served on the port in `docker-compose.yml` (default `8080`). Reach it at `http://<your-server-ip>:<port>`.
+
+### 2. Open the dashboard port
+
+In your cloud firewall / AWS security group, add an inbound **Custom TCP** rule for the dashboard port (default **8080**). Restrict the source to your IP where possible — the dashboard's control actions are token-gated, but limiting exposure is good practice.
+
+### 3. (Optional) GitHub Actions auto-deploy
+
+`.github/workflows/deploy.yml` redeploys on push to `main` via SSH. Add these **Repository Secrets** (Settings → Secrets and variables → Actions):
+
+- `EC2_HOST` — your server's public IP/DNS
+- `EC2_USERNAME` — e.g. `ubuntu`
+- `EC2_SSH_KEY` — the full contents of your private key (`.pem`)
+
+---
+
+## 💻 Local Setup
+
+```bash
+npm ci
+cp .env.example .env     # add TOKEN (+ ADMIN_TOKEN)
+npm start
+```
+
+> Local runs without the Docker image won't have the deno + bgutil sidecar, so YouTube extraction may hit bot-checks. Docker Compose is the supported path.
+
+---
+
+## 🍪 Anti-Bot, deno & PO Tokens 🛡️
+
+Modern `yt-dlp` needs a JavaScript runtime and, on datacenter IPs, Proof-of-Origin (PO) tokens to satisfy YouTube's "confirm you're not a bot" checks. The Docker image handles both automatically:
+
+- **deno** is installed into the image as the JS runtime.
+- The **`bgutil-provider`** sidecar mints PO tokens on demand; the bot passes its URL to yt-dlp via `youtubepot-bgutilhttp:base_url`. No manual token refresh required.
+
+For login-restricted videos you can additionally supply YouTube cookies:
+
+1. Export your YouTube session cookies in **Netscape format** (e.g. the *Get cookies.txt LOCALLY* browser extension).
+2. Either place the file at `data/cookies.txt` and set `YTDLP_COOKIES_PATH=/app/data/cookies.txt`, or base64-encode it and set `YTDLP_COOKIES_BASE64`.
+
+> Tip: use a throwaway Google account for cookies — heavy datacenter usage can get an account flagged.
 
 ---
 
@@ -144,19 +152,20 @@ Our custom fallback engine will automatically feed these credentials to `yt-dlp`
 
 ```
 discord_music_bot/
-├── index.js            # Bot core (commands, playback loops, button triggers)
-├── server.js           # Native telemetry web server and HSL CSS dashboard interface
-├── settings.js         # Settings manager with dynamic JSON path fallback
-├── package.json        # Node dependency manifest
-├── Dockerfile          # Multi-stage slim Docker runtime definition
-├── docker-compose.yml  # Container port and volume mapping configuration
-├── .env.example        # Environment variable blueprint
-├── .gitignore          # Version control file filters
-└── .dockerignore       # Docker context build filters
+├── index.js              # Bot core: commands, playback, queue, control cores, buttons
+├── server.js             # Dashboard HTTP server: telemetry + control API + UI
+├── settings.js           # Per-guild + global settings manager (JSON-backed)
+├── package.json          # Dependencies
+├── Dockerfile            # Bot image: ffmpeg, deno, yt-dlp, bgutil plugin
+├── docker-compose.yml    # bot + bgutil-provider sidecar, ports & volumes
+├── .env.example          # Environment variable template
+├── .github/workflows/    # CI/CD deploy workflow
+├── .gitignore
+└── .dockerignore
 ```
 
 ---
 
-## 📄 License 📝
+## 📄 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT — see the LICENSE file.
