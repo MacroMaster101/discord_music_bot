@@ -108,11 +108,9 @@ function getYtdlpBaseOptions(playerClientOverride) {
     noWarnings: true,
     noPlaylist: true,
     preferFreeFormats: true,
-    youtubeSkipDashManifest: true,
     noCheckFormats: true,
     addHeader: [
       'referer:https://www.youtube.com/',
-      'user-agent:Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Safari/605.1.15',
     ],
     extractorArgs: `youtube:player_client=${playerClient}`,
   };
