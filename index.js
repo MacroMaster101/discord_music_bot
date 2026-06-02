@@ -710,6 +710,11 @@ async function bootstrapAndPlay(message, voiceChannel, song, statusMsg) {
 
   connection.on('stateChange', async (oldState, newState) => {
     if (newState.status === VoiceConnectionStatus.Disconnected) {
+      // Clear the channel status the instant we detect a disconnect — this is
+      // the last moment we may still be authorized to set it. If we reconnect
+      // below, playSong will re-set it; if we tear down, it's already cleared.
+      const q = queue.get(guildId);
+      if (q?.voiceChannel) setVoiceChannelStatus(q.voiceChannel.id, '');
       try {
         await Promise.race([
           entersState(connection, VoiceConnectionStatus.Signalling, 5_000),
@@ -1286,6 +1291,11 @@ function stopQueue(guildId, serverQueue) {
 function teardownQueue(guildId, serverQueue, destroyConnection) {
   if (serverQueue.stopped) return;
   serverQueue.stopped = true;
+  // Clear the voice-channel status FIRST, before we stop the player / destroy
+  // the connection. Discord only lets us set a voice status while connected to
+  // that channel, so on a sudden disconnect this is our best (and often last)
+  // chance to clear the "🎵 <song>" status before we lose authorization.
+  setVoiceChannelStatus(serverQueue.voiceChannel.id, '');
   serverQueue.songs = [];
   serverQueue.currentSongId = null;
   serverQueue.advancingSongId = null;
@@ -1307,7 +1317,6 @@ function teardownQueue(guildId, serverQueue, destroyConnection) {
   // voiceStateUpdate handler from triggering a second teardown
   queue.delete(guildId);
   updatePresence(false);
-  setVoiceChannelStatus(serverQueue.voiceChannel.id, '');
 
   if (destroyConnection) {
     const conn = getVoiceConnection(guildId);
