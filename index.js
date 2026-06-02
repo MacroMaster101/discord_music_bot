@@ -122,15 +122,20 @@ function getYtdlpBaseOptions(playerClientOverride) {
     addHeader: [
       'referer:https://www.youtube.com/',
     ],
-    extractorArgs:
-      `youtube:player_client=${playerClient};getpot_bgutil_baseurl=${bgutilBaseUrl}`,
+    // Two separate extractor-arg namespaces: the youtube extractor (player_client)
+    // and the bgutil HTTP PO-token provider (base_url). The provider key MUST be
+    // `youtubepot-bgutilhttp:base_url` — anything else and yt-dlp never calls it.
+    extractorArgs: [
+      `youtube:player_client=${playerClient}`,
+      `youtubepot-bgutilhttp:base_url=${bgutilBaseUrl}`,
+    ],
   };
   if (tempCookiesPath) {
     opts.cookies = tempCookiesPath;
   }
   // Legacy manual PO token still honored if explicitly set (auto-provider preferred).
   if (YTDLP_PO_TOKEN) {
-    opts.extractorArgs += `;po_token=web+${YTDLP_PO_TOKEN}`;
+    opts.extractorArgs[0] += `;po_token=web+${YTDLP_PO_TOKEN}`;
   }
   return opts;
 }
