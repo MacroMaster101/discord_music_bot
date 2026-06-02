@@ -175,6 +175,55 @@ function startDashboardServer(client, queue, hooks = {}) {
       return;
     }
 
+    if (req.url === '/api/control' && req.method === 'POST') {
+      if (!ADMIN_TOKEN) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Set ADMIN_TOKEN env var to enable control.' }));
+      }
+      if ((req.headers['x-admin-token'] || '') !== ADMIN_TOKEN) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Invalid admin token.' }));
+      }
+      let body = '';
+      req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
+      req.on('end', async () => {
+        let data;
+        try { data = JSON.parse(body || '{}'); } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'Bad JSON.' }));
+        }
+        const { guildId, action, value } = data;
+        if (!guildId || !action) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'guildId and action required.' }));
+        }
+        try {
+          let r;
+          switch (action) {
+            case 'pause': r = hooks.pauseResumeCore?.(guildId); break;
+            case 'skip': r = hooks.skipCore?.(guildId); break;
+            case 'stop': r = hooks.stopCore?.(guildId); break;
+            case 'restart': r = hooks.restartCore?.(guildId); break;
+            case 'volume': r = hooks.volumeCore?.(guildId, value); break;
+            case 'loop': r = hooks.loopCore?.(guildId); break;
+            case 'shuffle': r = hooks.shuffleCore?.(guildId); break;
+            case 'remove': r = hooks.removeCore?.(guildId, value); break;
+            case 'move': r = hooks.moveCore?.(guildId, value?.from, value?.to); break;
+            case 'clear': r = hooks.clearCore?.(guildId); break;
+            case 'add': r = await hooks.addCore?.(guildId, value); break;
+            default: r = { ok: false, error: 'Unknown action.' };
+          }
+          if (!r) r = { ok: false, error: 'Action not supported.' };
+          res.writeHead(r.ok ? 200 : 400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify(r));
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: err.message || 'Control failed.' }));
+        }
+      });
+      return;
+    }
+
     if (req.url === '/' || req.url === '/index.html') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       return res.end(renderDashboardHtml(settings.get(null, 'prefix')));
