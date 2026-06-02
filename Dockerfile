@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     ffmpeg \
     python3 \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
