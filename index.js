@@ -175,7 +175,7 @@ client.once('ready', async () => {
 
   // Start the web dashboard and statistics API server
   try {
-    startDashboardServer(client, queue, { getBotStats, getQueueProgress });
+    startDashboardServer(client, queue, { getBotStats, getQueueProgress, seek });
   } catch (err) {
     console.error('Could not start Web Dashboard Server:', err);
   }
@@ -1479,7 +1479,7 @@ function startNowPlayingTicker(serverQueue) {
     } catch (err) {
       stopNowPlayingTicker(serverQueue);
     }
-  }, 5000);
+  }, 2000);
 }
 
 function stopNowPlayingTicker(serverQueue) {
@@ -1883,6 +1883,30 @@ function getBotStats() {
   };
 }
 
+// Seek the currently-playing song in a guild to an absolute position (seconds).
+// Reuses the same logic as the np_seek buttons. Returns a result for the HTTP layer.
+function seek(guildId, seconds) {
+  const serverQueue = queue.get(guildId);
+  if (!serverQueue) return { ok: false, error: 'No active queue for that guild.' };
+  const song = serverQueue.songs[0];
+  if (!song) return { ok: false, error: 'Nothing is playing.' };
+
+  let target = Math.floor(Number(seconds));
+  if (!Number.isFinite(target) || target < 0) target = 0;
+
+  if (song.duration && target >= song.duration - 1) {
+    // Seeking at/after the end → skip to next
+    skipQueue(serverQueue);
+    return { ok: true, skipped: true };
+  }
+
+  // Fire-and-forget restart at the new position (playSong is async).
+  playSong(guildId, song, target).catch((err) => {
+    console.error('Seek playSong failed:', err?.message || err);
+  });
+  return { ok: true, seconds: target };
+}
+
 function getQueueProgress(serverQueue) {
   const elapsed = getElapsedSeconds(serverQueue);
   const song = serverQueue.songs[0];
@@ -1900,6 +1924,6 @@ function getQueueProgress(serverQueue) {
   };
 }
 
-module.exports = { getBotStats, getQueueProgress };
+module.exports = { getBotStats, getQueueProgress, seek };
 
 client.login(TOKEN);

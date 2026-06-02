@@ -142,6 +142,39 @@ function startDashboardServer(client, queue, hooks = {}) {
       }
     }
 
+    if (req.url === '/api/seek' && req.method === 'POST') {
+      if (!ADMIN_TOKEN) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Set ADMIN_TOKEN env var to enable seeking.' }));
+      }
+      const auth = req.headers['x-admin-token'] || '';
+      if (auth !== ADMIN_TOKEN) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ error: 'Invalid admin token.' }));
+      }
+      let body = '';
+      req.on('data', (chunk) => {
+        body += chunk;
+        if (body.length > 4096) req.destroy();
+      });
+      req.on('end', () => {
+        let data;
+        try { data = JSON.parse(body || '{}'); } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'Bad JSON.' }));
+        }
+        const { guildId, seconds } = data;
+        if (!guildId || typeof seconds !== 'number') {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'guildId and numeric seconds required.' }));
+        }
+        const result = hooks.seek ? hooks.seek(guildId, seconds) : { ok: false, error: 'Seek not supported.' };
+        res.writeHead(result.ok ? 200 : 400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify(result));
+      });
+      return;
+    }
+
     if (req.url === '/' || req.url === '/index.html') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       return res.end(renderDashboardHtml(settings.get(null, 'prefix')));
@@ -307,10 +340,12 @@ header.bar {
 }
 .progress-bar {
   height: 6px; background: rgba(255,255,255,0.05); border-radius: 999px; overflow: hidden; position: relative;
+  cursor: pointer;
 }
+.progress-bar:hover .progress-fill { filter: brightness(1.2); }
 .progress-fill {
   height: 100%; background: linear-gradient(90deg, var(--primary), var(--accent));
-  border-radius: 999px; width: 0%; transition: width 0.7s ease;
+  border-radius: 999px; width: 0%; transition: width 0.25s linear;
   box-shadow: 0 0 10px rgba(129,140,248,0.4);
 }
 .progress-time { display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); }
@@ -689,6 +724,7 @@ let localUptimeMs = 0;
 let uptimeTimer = null;
 let consecutiveFailures = 0;
 const FAILURE_THRESHOLD = 3; // only show OFFLINE after 3 misses in a row
+let seekProgress = {}; // guildId -> { elapsed, duration }; drives smooth bar + click-to-seek
 
 function fmtDur(ms) {
   const s = Math.floor(ms/1000);
@@ -778,6 +814,8 @@ async function fetchStats() {
     if (!d.activeTracks.length) {
       streamsEl.innerHTML = '<div class="empty"><div class="icon">🎧</div><div class="ttl">No active rooms</div><div class="sub">Run <code>${PREFIX}play &lt;song&gt;</code> in a voice channel.</div></div>';
     } else {
+      seekProgress = {};
+      d.activeTracks.forEach((t) => { seekProgress[t.guildId] = { elapsed: t.elapsedSeconds, duration: t.durationSeconds }; });
       streamsEl.innerHTML = d.activeTracks.map((t) => {
         const pct = t.durationSeconds > 0 ? Math.min(100, (t.elapsedSeconds / t.durationSeconds) * 100) : 0;
         const thumb = t.thumbnail
@@ -807,8 +845,10 @@ async function fetchStats() {
             '</div>'+
           '</div>'+
           '<div class="progress">'+
-            '<div class="progress-bar"><div class="progress-fill" style="width:'+pct+'%"></div></div>'+
-            '<div class="progress-time"><span>'+t.elapsedText+'</span><span>'+t.durationText+'</span></div>'+
+            '<div class="progress-bar" data-guild="'+escapeHtml(t.guildId)+'" data-duration="'+t.durationSeconds+'">'+
+              '<div class="progress-fill" id="fill-'+escapeHtml(t.guildId)+'" style="width:'+pct+'%"></div>'+
+            '</div>'+
+            '<div class="progress-time"><span id="elapsed-'+escapeHtml(t.guildId)+'">'+t.elapsedText+'</span><span>'+t.durationText+'</span></div>'+
           '</div>'+
           upcomingHtml+
         '</div>';
@@ -844,6 +884,48 @@ async function fetchStats() {
     }
   }
 }
+
+// ───── Smooth progress bar (ticks locally between polls) ─────
+setInterval(function () {
+  var ids = Object.keys(seekProgress);
+  for (var i = 0; i < ids.length; i++) {
+    var gid = ids[i];
+    var p = seekProgress[gid];
+    if (!p || !p.duration) continue;
+    p.elapsed += 0.25;
+    if (p.elapsed > p.duration) p.elapsed = p.duration;
+    var fill = document.getElementById('fill-' + gid);
+    var el = document.getElementById('elapsed-' + gid);
+    if (fill) fill.style.width = Math.min(100, (p.elapsed / p.duration) * 100) + '%';
+    if (el) {
+      var m = Math.floor(p.elapsed / 60), s = Math.floor(p.elapsed % 60);
+      el.textContent = m + ':' + (s < 10 ? '0' : '') + s;
+    }
+  }
+}, 250);
+
+// ───── Click-to-seek (delegated on the streams container) ─────
+document.getElementById('streams').addEventListener('click', function (ev) {
+  var bar = ev.target.closest ? ev.target.closest('.progress-bar') : null;
+  if (!bar) return;
+  var gid = bar.getAttribute('data-guild');
+  var duration = parseFloat(bar.getAttribute('data-duration'));
+  if (!gid || !duration) return;
+  var rect = bar.getBoundingClientRect();
+  var frac = (ev.clientX - rect.left) / rect.width;
+  frac = Math.max(0, Math.min(1, frac));
+  var seconds = Math.floor(frac * duration);
+  var token = localStorage.getItem('adminToken') || '';
+  if (!token) { alert('Paste your admin token in Settings to enable seeking.'); return; }
+  if (seekProgress[gid]) seekProgress[gid].elapsed = seconds; // optimistic jump
+  fetch('/api/seek', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-token': token },
+    body: JSON.stringify({ guildId: gid, seconds: seconds }),
+  }).then(function (r) { return r.json(); }).then(function (res) {
+    if (!res.ok) alert('Seek failed: ' + (res.error || 'unknown'));
+  }).catch(function () { alert('Seek request failed.'); });
+});
 
 // ───── Settings modal ─────
 const modal = document.getElementById('settings-modal');
