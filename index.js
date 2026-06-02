@@ -727,11 +727,15 @@ async function bootstrapAndPlay(message, voiceChannel, song, statusMsg) {
 
   queueConstruct.player.on(AudioPlayerStatus.Idle, async () => {
     if (queueConstruct.stopped) return;
+    // Ignore the Idle caused by our own seek/restart killing the old ffmpeg.
+    if (queueConstruct.restarting) return;
     advanceQueue(guildId, queueConstruct, false);
   });
 
   queueConstruct.player.on('error', async (error) => {
     if (queueConstruct.stopped) return;
+    // Ignore errors from the old stream being torn down during a seek/restart.
+    if (queueConstruct.restarting) return;
     console.error('Player error:', error.message || error);
     queueConstruct.textChannel.send('❌ Playback error, skipping...').catch(() => {});
     advanceQueue(guildId, queueConstruct, true);
@@ -895,6 +899,11 @@ async function playSong(guildId, song, seekSeconds = 0) {
 
   try {
     clearIdleDisconnect(serverQueue);
+    // Killing the old ffmpeg below makes the player emit Idle. Mark that we're
+    // deliberately restarting so the Idle handler doesn't treat it as
+    // "song finished" and advance/drop the queue (caused seeks — especially
+    // backward — to stop the song).
+    serverQueue.restarting = true;
     cleanupCurrentProcess(serverQueue);
     serverQueue.currentSongId = song.id;
     serverQueue.advancingSongId = null;
@@ -962,6 +971,8 @@ async function playSong(guildId, song, seekSeconds = 0) {
     serverQueue.targetVolume = vol;
     resource.volume?.setVolume(vol);
     serverQueue.player.play(resource);
+    // New stream is live; allow the next genuine Idle to advance the queue again.
+    serverQueue.restarting = false;
     updatePresence(true, song.title);
     setVoiceChannelStatus(serverQueue.voiceChannel.id, `🎵 ${song.title}`);
 
@@ -977,6 +988,8 @@ async function playSong(guildId, song, seekSeconds = 0) {
     console.log(`▶️ Playing: ${song.title}${seekSeconds ? ` (from ${seekSeconds}s)` : ''}`);
     return true;
   } catch (err) {
+    // Clear the restart guard so a failed seek doesn't freeze future advances.
+    serverQueue.restarting = false;
     const technicalReason = getTechnicalErrorMessage(err);
     const publicReason = getPublicPlayErrorMessage(technicalReason);
     console.error('Play error:', technicalReason);
