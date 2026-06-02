@@ -681,7 +681,7 @@ footer a:hover { color: var(--accent); }
   </div>
 </div>
 
-<footer>J4FN Music • powered by <a href="https://fly.io" target="_blank">Fly.io</a></footer>
+<footer>J4FN Music • Dockerized on AWS EC2</footer>
 </div>
 
 <script>

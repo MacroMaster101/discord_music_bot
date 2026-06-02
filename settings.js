@@ -1,8 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 
-// On Fly we mount a volume at /data. Locally, fall back to ./data.
-const DATA_DIR = fs.existsSync('/data') ? '/data' : path.join(__dirname, 'data');
+// Support Docker volume mounts at /app/data, legacy Fly volume at /data, and local data directory.
+const DATA_DIR = fs.existsSync('/app/data') 
+  ? '/app/data' 
+  : (fs.existsSync('/data') ? '/data' : path.join(__dirname, 'data'));
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 
 const DEFAULTS = {

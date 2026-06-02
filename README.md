@@ -196,36 +196,56 @@ The Dockerfile:
 - Installs **FFmpeg** and **Python 3** (needed by yt-dlp)
 - Automatically upgrades the bundled **yt-dlp** binary to the latest version on build
 
-### Fly.io (Recommended)
+### AWS EC2 & Docker Compose (Recommended)
 
-1. Install the [Fly CLI](https://fly.io/docs/flyctl/install/) and log in:
+To host this Discord Music Bot concurrently on your AWS EC2 instance (Ubuntu Server, Singapore region) alongside other bots:
 
-```bash
-fly auth login
-```
+#### 1. First-Time Manual Server Setup
+1. Connect to your EC2 instance via SSH:
+   ```bash
+   ssh -i bot-key.pem ubuntu@13.212.35.227
+   ```
+2. Navigate to your user home directory and clone the repository:
+   ```bash
+   cd ~
+   git clone https://github.com/MacroMaster101/discord_music_bot.git
+   ```
+3. Navigate into the cloned folder:
+   ```bash
+   cd ~/discord_music_bot
+   ```
+4. Create and configure your local environment file:
+   ```bash
+   nano .env
+   ```
+   Add your required variables, such as:
+   ```env
+   TOKEN=your_discord_bot_token
+   ADMIN_TOKEN=your_secret_admin_token
+   PORT=8080
+   ```
+5. Launch the container:
+   ```bash
+   docker compose up -d --build
+   ```
 
-2. Set your secrets:
+#### 2. Configure GitHub Secrets for Automatic Deployment (CI/CD)
+To enable automatic updates whenever changes are pushed to `main`, configure the following **Repository Secrets** in your GitHub repository (**Settings** -> **Secrets and variables** -> **Actions**):
+- `EC2_HOST`: `13.212.35.227`
+- `EC2_USERNAME`: `ubuntu`
+- `EC2_SSH_KEY`: The entire contents of your private SSH key (`bot-key.pem`).
 
-```bash
-fly secrets set TOKEN=your_discord_bot_token
-fly secrets set ADMIN_TOKEN=your_secret_admin_token
-# Optional: YouTube cookies
-fly secrets set YTDLP_COOKIES_BASE64=your_base64_cookies
-```
+#### 3. AWS Security Group Configuration
+To access the live web dashboard:
+- Open your AWS EC2 Console.
+- Navigate to the **Security Groups** page and select the `launch-wizard-1` security group.
+- Add an **Inbound Rule** with:
+  - **Type**: Custom TCP
+  - **Port Range**: `8082`
+  - **Source**: `Anywhere-IPv4` (`0.0.0.0/0`) or your trusted IP network.
 
-3. Deploy:
-
-```bash
-fly deploy
-```
-
-4. Check logs:
-
-```bash
-fly logs
-```
-
-> **Note:** The bot exposes an HTTP service on port `8080` for the live web dashboard. By setting `auto_stop_machines = 'off'` in `fly.toml`, Fly.io is instructed to keep the bot active **24/7**, ensuring it stays responsive and stays in voice channels regardless of web page traffic.
+The dashboard will be active and viewable at:
+`http://13.212.35.227:8082`
 
 ### Local
 
@@ -233,7 +253,7 @@ fly logs
 npm start
 ```
 
-Keep the terminal (or your PC) running. The bot stays online as long as the process is alive.
+Keep the terminal running. The bot stays online as long as the process is active.
 
 ---
 
@@ -246,7 +266,7 @@ discord_music_bot/
 ├── settings.js         # Per-guild and global settings with persistent JSON storage
 ├── package.json        # Dependencies & scripts
 ├── Dockerfile          # Docker container definition
-├── fly.toml            # Fly.io deployment configuration
+├── docker-compose.yml  # Docker Compose configuration
 ├── .env.example        # Environment variable template
 ├── .gitignore          # Git ignore rules
 └── .dockerignore       # Docker ignore rules
