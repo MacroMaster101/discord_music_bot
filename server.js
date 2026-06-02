@@ -399,6 +399,23 @@ header.bar {
 }
 .progress-time { display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); }
 
+.controls-row { display:flex; gap:6px; justify-content:center; align-items:center; flex-wrap:wrap; margin-top:10px; }
+.ctl { background:#26263a; border:1px solid var(--border); color:var(--text); padding:7px 12px; border-radius:8px; font-size:13px; cursor:pointer; font-family:inherit; transition:border-color .15s, opacity .15s; }
+.ctl:hover { border-color:var(--border-strong); }
+.ctl:active { opacity:.8; }
+.ctl.primary { background:linear-gradient(135deg,var(--primary),var(--accent)); border:none; color:#fff; }
+.ctl.danger { background:rgba(248,113,113,0.12); color:var(--danger); border-color:rgba(248,113,113,0.3); }
+.ctl.mini { padding:3px 8px; font-size:12px; }
+.vol-wrap { display:flex; align-items:center; gap:8px; background:#26263a; padding:5px 12px; border-radius:8px; font-size:13px; }
+.vol { width:90px; accent-color: var(--primary); }
+.add-row { display:flex; gap:8px; margin-top:12px; }
+.add-input { flex:1; background:rgba(255,255,255,0.02); border:1px solid var(--border); color:var(--text); padding:9px 12px; border-radius:10px; font-family:inherit; font-size:13px; }
+.add-input:focus { outline:none; border-color:var(--primary); }
+.queue-list { margin-top:12px; }
+.queue-item { display:flex; align-items:center; gap:8px; padding:6px 10px; background:rgba(255,255,255,0.025); border-radius:8px; margin-bottom:4px; }
+.queue-item .qn { color:var(--muted); font-family:'JetBrains Mono', monospace; font-size:12px; }
+.queue-item .qt { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
 .upcoming { margin-top: 4px; display: flex; flex-direction: column; gap: 4px; }
 .upcoming .sub-title { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
 .upcoming-item {
@@ -870,16 +887,22 @@ async function fetchStats() {
         const thumb = t.thumbnail
           ? '<img src="'+escapeHtml(t.thumbnail)+'" alt="">'
           : '💿';
-        const loopBadge = t.loop && t.loop !== 'off'
-          ? '<span class="badge loop">🔁 '+t.loop+'</span>' : '';
-        const upcomingHtml = t.upcoming.length
-          ? '<div class="upcoming"><div class="sub-title">Up next</div>'+
-            t.upcoming.map((u,i) => '<div class="upcoming-item">'+(i+1)+'. <a href="'+escapeHtml(u.url||'#')+'" target="_blank">'+escapeHtml(u.title)+'</a></div>').join('')+
-            '</div>' : '';
         const titleHtml = t.songUrl
           ? '<a href="'+escapeHtml(t.songUrl)+'" target="_blank">'+escapeHtml(t.songTitle)+'</a>'
           : escapeHtml(t.songTitle);
-        return '<div class="stream">'+
+        const queueHtml = t.upcoming.length
+          ? '<div class="queue-list"><div class="sub-title">Up next · '+t.upcoming.length+'</div>'+
+              t.upcoming.map((u,i) => '<div class="queue-item">'+
+                '<span class="qn">'+(i+1)+'.</span>'+
+                '<span class="qt">'+escapeHtml(u.title)+'</span>'+
+                '<button class="ctl mini" data-act="move" data-from="'+(i+1)+'" data-to="'+i+'">↑</button>'+
+                '<button class="ctl mini" data-act="move" data-from="'+(i+1)+'" data-to="'+(i+2)+'">↓</button>'+
+                '<button class="ctl mini danger" data-act="remove" data-idx="'+(i+1)+'">✕</button>'+
+              '</div>').join('')+
+              '<div style="text-align:right;margin-top:6px"><button class="ctl danger" data-act="clear">🗑 Clear queue</button></div>'+
+            '</div>'
+          : '';
+        return '<div class="stream" data-guild="'+escapeHtml(t.guildId)+'">'+
           '<div class="stream-head">'+
             '<div class="thumb">'+thumb+'</div>'+
             '<div class="stream-info">'+
@@ -887,8 +910,6 @@ async function fetchStats() {
               '<div class="stream-meta">'+
                 '<span class="badge">🏛️ '+escapeHtml(t.guildName)+'</span>'+
                 '<span class="badge">🔊 '+escapeHtml(t.voiceChannelName)+'</span>'+
-                '<span class="badge">vol '+t.volume+'%</span>'+
-                loopBadge+
                 '<span class="badge live">● LIVE</span>'+
               '</div>'+
             '</div>'+
@@ -899,7 +920,24 @@ async function fetchStats() {
             '</div>'+
             '<div class="progress-time"><span id="elapsed-'+escapeHtml(t.guildId)+'">'+t.elapsedText+'</span><span>'+t.durationText+'</span></div>'+
           '</div>'+
-          upcomingHtml+
+          '<div class="controls-row">'+
+            '<button class="ctl" data-act="restart" title="Restart">⏮</button>'+
+            '<button class="ctl" data-act="seekrel" data-val="-10">⏪10s</button>'+
+            '<button class="ctl primary" data-act="pause" title="Play/Pause">⏯</button>'+
+            '<button class="ctl" data-act="seekrel" data-val="10">10s⏩</button>'+
+            '<button class="ctl" data-act="skip" title="Skip">⏭</button>'+
+            '<button class="ctl danger" data-act="stop" title="Stop">⏹</button>'+
+          '</div>'+
+          '<div class="controls-row">'+
+            '<button class="ctl" data-act="loop">🔁 '+escapeHtml(t.loop || 'off')+'</button>'+
+            '<button class="ctl" data-act="shuffle">🔀</button>'+
+            '<span class="vol-wrap">🔊 <input type="range" min="0" max="200" value="'+t.volume+'" class="vol" data-guild="'+escapeHtml(t.guildId)+'"><span class="vol-val">'+t.volume+'%</span></span>'+
+          '</div>'+
+          '<div class="add-row">'+
+            '<input class="add-input" data-guild="'+escapeHtml(t.guildId)+'" placeholder="🔍 Paste a YouTube URL or search a song…">'+
+            '<button class="ctl primary" data-act="add">+ Add</button>'+
+          '</div>'+
+          queueHtml+
         '</div>';
       }).join('');
     }
@@ -974,6 +1012,62 @@ document.getElementById('streams').addEventListener('click', function (ev) {
   }).then(function (r) { return r.json(); }).then(function (res) {
     if (!res.ok) alert('Seek failed: ' + (res.error || 'unknown'));
   }).catch(function () { alert('Seek request failed.'); });
+});
+
+// ───── Playback control (token-gated) ─────
+function control(action, value, guildId) {
+  var token = localStorage.getItem('adminToken') || '';
+  if (!token) { alert('Paste your admin token in Settings to control playback.'); return Promise.resolve({ ok: false }); }
+  return fetch('/api/control', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-token': token },
+    body: JSON.stringify({ guildId: guildId, action: action, value: value }),
+  }).then(function (r) { return r.json(); }).then(function (res) {
+    if (!res.ok) alert(action + ' failed: ' + (res.error || 'unknown'));
+    return res;
+  }).catch(function () { alert('Control request failed.'); return { ok: false }; });
+}
+
+document.getElementById('streams').addEventListener('click', function (ev) {
+  var btn = ev.target.closest ? ev.target.closest('.ctl') : null;
+  if (!btn) return;
+  var stream = btn.closest('.stream');
+  var gid = stream && stream.getAttribute('data-guild');
+  if (!gid) return;
+  var act = btn.getAttribute('data-act');
+  if (act === 'seekrel') {
+    var delta = parseInt(btn.getAttribute('data-val'), 10);
+    var p = seekProgress[gid];
+    var target = Math.max(0, Math.floor((p ? p.elapsed : 0) + delta));
+    var token = localStorage.getItem('adminToken') || '';
+    if (!token) { alert('Paste your admin token in Settings.'); return; }
+    if (p) p.elapsed = target;
+    fetch('/api/seek', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-token': token }, body: JSON.stringify({ guildId: gid, seconds: target }) });
+    return;
+  }
+  if (act === 'add') {
+    var inp = stream.querySelector('.add-input');
+    var q = inp && inp.value.trim();
+    if (!q) return;
+    control('add', q, gid).then(function (res) { if (res && res.ok) inp.value = ''; });
+    return;
+  }
+  if (act === 'move') {
+    control('move', { from: parseInt(btn.getAttribute('data-from'), 10), to: parseInt(btn.getAttribute('data-to'), 10) }, gid);
+    return;
+  }
+  if (act === 'remove') { control('remove', parseInt(btn.getAttribute('data-idx'), 10), gid); return; }
+  control(act, null, gid);
+});
+
+document.getElementById('streams').addEventListener('input', function (ev) {
+  var v = ev.target.closest ? ev.target.closest('.vol') : null;
+  if (!v) return;
+  var gid = v.getAttribute('data-guild');
+  var label = v.parentElement.querySelector('.vol-val');
+  if (label) label.textContent = v.value + '%';
+  clearTimeout(v._t);
+  v._t = setTimeout(function () { control('volume', parseInt(v.value, 10), gid); }, 250);
 });
 
 // ───── Settings modal ─────
