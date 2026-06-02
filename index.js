@@ -726,35 +726,24 @@ async function bootstrapAndPlay(message, voiceChannel, song, statusMsg) {
 
   connection.subscribe(queueConstruct.player);
 
-  queueConstruct.player.on(AudioPlayerStatus.Idle, async () => {
+  queueConstruct.player.on(AudioPlayerStatus.Idle, (oldState) => {
     if (queueConstruct.stopped) return;
-    console.warn(`🟡 [DIAG] Idle fired. playToken=${queueConstruct.playToken} activePlayToken=${queueConstruct.activePlayToken}`);
-    // A restart is in flight when the latest playToken hasn't gone live yet
-    // (token bumped, but player.play() for it not reached). The Idle we see is
-    // from the killed/superseded stream — ignore it.
-    if (queueConstruct.playToken !== queueConstruct.activePlayToken) {
-      console.warn('🟡 [DIAG] Idle ignored (restart in flight)');
-      return;
-    }
-    // Defensive: confirm still Idle on the next tick (a fresh stream may be
-    // starting). If the player is Playing again, this was a restart artifact.
-    const tokenAtIdle = queueConstruct.activePlayToken;
-    setTimeout(() => {
-      if (queueConstruct.stopped) return;
-      if (queueConstruct.activePlayToken !== tokenAtIdle) return; // superseded
-      if (queueConstruct.player.state.status !== AudioPlayerStatus.Idle) return; // playing again
-      advanceQueue(guildId, queueConstruct, false);
-    }, 150);
+    // Only advance if the resource that JUST ENDED is the one we currently
+    // consider live. A seek/skip kills the old ffmpeg → its resource goes Idle,
+    // but by then currentResource points at the NEW stream, so the stale Idle
+    // is ignored. Resource identity is timing-independent (no race window).
+    const endedToken = oldState?.resource?.metadata?.playToken;
+    const liveToken = queueConstruct.currentResource?.metadata?.playToken;
+    if (endedToken !== liveToken) return; // superseded stream ended — ignore
+    advanceQueue(guildId, queueConstruct, false);
   });
 
-  queueConstruct.player.on('error', async (error) => {
+  queueConstruct.player.on('error', (error) => {
     if (queueConstruct.stopped) return;
-    console.warn(`🔴 [DIAG] Player error fired. playToken=${queueConstruct.playToken} activePlayToken=${queueConstruct.activePlayToken} msg=${error?.message}`);
-    // Ignore errors from a superseded stream being torn down during a restart.
-    if (queueConstruct.playToken !== queueConstruct.activePlayToken) {
-      console.warn('🔴 [DIAG] Player error ignored (restart in flight)');
-      return;
-    }
+    // Same identity guard: ignore errors from a superseded/killed stream.
+    const erroredToken = error?.resource?.metadata?.playToken;
+    const liveToken = queueConstruct.currentResource?.metadata?.playToken;
+    if (erroredToken !== undefined && erroredToken !== liveToken) return;
     console.error('Player error:', error.message || error);
     queueConstruct.textChannel.send('❌ Playback error, skipping...').catch(() => {});
     advanceQueue(guildId, queueConstruct, true);
@@ -985,17 +974,19 @@ async function playSong(guildId, song, seekSeconds = 0) {
       inlineVolume: true,
       metadata: {
         title: song.title,
+        playToken: myToken,
       },
     });
-    
+
     const vol = serverQueue.targetVolume ?? (getDefaultVolume(guildId) / 100);
     serverQueue.targetVolume = vol;
     resource.volume?.setVolume(vol);
     serverQueue.player.play(resource);
-    // Mark this token as the live stream. A later Idle/error advances the queue
-    // ONLY if it belongs to this same token; events from a superseded (killed)
-    // stream carry an older token and are ignored.
-    serverQueue.activePlayToken = myToken;
+    // Track the resource we just started. On Idle/error we compare the resource
+    // that ENDED against this one (by token in its metadata): a killed/superseded
+    // stream's event carries an OLD resource and is ignored — timing-independent,
+    // unlike the previous token-window guard which a fast seek could race past.
+    serverQueue.currentResource = resource;
     updatePresence(true, song.title);
     setVoiceChannelStatus(serverQueue.voiceChannel.id, `🎵 ${song.title}`);
 
@@ -1011,9 +1002,6 @@ async function playSong(guildId, song, seekSeconds = 0) {
     console.log(`▶️ Playing: ${song.title}${seekSeconds ? ` (from ${seekSeconds}s)` : ''}`);
     return true;
   } catch (err) {
-    // Sync the active token so future Idle events aren't permanently suppressed
-    // after a failed (seek-)restart.
-    serverQueue.activePlayToken = myToken;
     const technicalReason = getTechnicalErrorMessage(err);
     const publicReason = getPublicPlayErrorMessage(technicalReason);
     console.error('Play error:', technicalReason);
