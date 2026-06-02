@@ -714,6 +714,7 @@ async function bootstrapAndPlay(message, voiceChannel, song, statusMsg) {
       } catch {
         const currentQueue = queue.get(guildId);
         if (currentQueue && !currentQueue.stopped) {
+          console.warn('🔌 [DIAG] Voice connection dropped & did not recover → teardown (this is the "dc")');
           currentQueue.textChannel.send('❌ Lost voice connection. Stopping playback.').catch(() => {});
           teardownQueue(guildId, currentQueue, true);
         } else {
@@ -727,10 +728,14 @@ async function bootstrapAndPlay(message, voiceChannel, song, statusMsg) {
 
   queueConstruct.player.on(AudioPlayerStatus.Idle, async () => {
     if (queueConstruct.stopped) return;
+    console.warn(`🟡 [DIAG] Idle fired. playToken=${queueConstruct.playToken} activePlayToken=${queueConstruct.activePlayToken}`);
     // A restart is in flight when the latest playToken hasn't gone live yet
     // (token bumped, but player.play() for it not reached). The Idle we see is
     // from the killed/superseded stream — ignore it.
-    if (queueConstruct.playToken !== queueConstruct.activePlayToken) return;
+    if (queueConstruct.playToken !== queueConstruct.activePlayToken) {
+      console.warn('🟡 [DIAG] Idle ignored (restart in flight)');
+      return;
+    }
     // Defensive: confirm still Idle on the next tick (a fresh stream may be
     // starting). If the player is Playing again, this was a restart artifact.
     const tokenAtIdle = queueConstruct.activePlayToken;
@@ -744,8 +749,12 @@ async function bootstrapAndPlay(message, voiceChannel, song, statusMsg) {
 
   queueConstruct.player.on('error', async (error) => {
     if (queueConstruct.stopped) return;
+    console.warn(`🔴 [DIAG] Player error fired. playToken=${queueConstruct.playToken} activePlayToken=${queueConstruct.activePlayToken} msg=${error?.message}`);
     // Ignore errors from a superseded stream being torn down during a restart.
-    if (queueConstruct.playToken !== queueConstruct.activePlayToken) return;
+    if (queueConstruct.playToken !== queueConstruct.activePlayToken) {
+      console.warn('🔴 [DIAG] Player error ignored (restart in flight)');
+      return;
+    }
     console.error('Player error:', error.message || error);
     queueConstruct.textChannel.send('❌ Playback error, skipping...').catch(() => {});
     advanceQueue(guildId, queueConstruct, true);
@@ -1918,6 +1927,7 @@ function seek(guildId, seconds) {
   if (!serverQueue) return { ok: false, error: 'No active queue for that guild.' };
   const song = serverQueue.songs[0];
   if (!song) return { ok: false, error: 'Nothing is playing.' };
+  console.warn(`🔵 [DIAG] seek requested → ${seconds}s (playToken=${serverQueue.playToken})`);
 
   let target = Math.floor(Number(seconds));
   if (!Number.isFinite(target) || target < 0) target = 0;
