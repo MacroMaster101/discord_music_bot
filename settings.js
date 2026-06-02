@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-// Support Docker volume mounts at /app/data, legacy Fly volume at /data, and local data directory.
+// Set up persistent data directory (prefer Docker/Fly mounts over local fallback)
 const DATA_DIR = fs.existsSync('/app/data') 
   ? '/app/data' 
   : (fs.existsSync('/data') ? '/data' : path.join(__dirname, 'data'));
