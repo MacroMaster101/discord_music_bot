@@ -1169,10 +1169,17 @@ resetBtn.addEventListener('click', async () => {
 });
 
 async function pollLoop() {
-  await fetchStats();
-  // Fast retry on failure, normal cadence on success
-  const delay = consecutiveFailures > 0 ? 1500 : 2500;
-  setTimeout(pollLoop, delay);
+  try {
+    await fetchStats();
+  } catch (err) {
+    // fetchStats has its own try/catch, but guard here too: an exception must
+    // NEVER stop the loop, or the dashboard freezes until a manual refresh.
+    consecutiveFailures += 1;
+  } finally {
+    // ALWAYS reschedule — this is what keeps auto-refresh alive.
+    const delay = consecutiveFailures > 0 ? 1500 : 2500;
+    setTimeout(pollLoop, delay);
+  }
 }
 pollLoop();
 </script>
