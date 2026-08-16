@@ -82,9 +82,11 @@ const PRESENCE_ROTATE_MS = 12000;
 // PO-token provider is installed; the remaining clients are limited fallbacks.
 const PLAYER_CLIENT_CHAINS = [
   'mweb',
-  'android_vr',
-  'web_embedded',
   'web_safari',
+  'web_embedded',
+  // Account cookies are unsupported by android_vr, so keep it last as a
+  // guest-only fallback after the cookie-capable web clients.
+  'android_vr',
 ];
 
 if (!TOKEN) {
@@ -121,6 +123,8 @@ function getYtdlpBaseOptions(playerClientOverride) {
     noWarnings: true,
     noPlaylist: true,
     noCheckFormats: true,
+    // Avoid hammering YouTube with consecutive authenticated API requests.
+    sleepRequests: 1,
     // Modern yt-dlp YouTube extraction needs a JS runtime; deno is baked into the image.
     jsRuntimes: 'deno',
     addHeader: [
