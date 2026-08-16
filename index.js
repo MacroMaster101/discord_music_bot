@@ -126,8 +126,12 @@ function getYtdlpBaseOptions(playerClientOverride) {
     noCheckFormats: true,
     // Avoid hammering YouTube with consecutive authenticated API requests.
     sleepRequests: 1,
-    // Modern yt-dlp YouTube extraction needs a JS runtime; deno is baked into the image.
-    jsRuntimes: 'deno',
+    // yt-dlp enables Deno by default, but its challenge solver is repeatedly
+    // OOM-killed on the 1 GB EC2 host. Clear defaults and use the Node runtime
+    // already included in this image; it resolves the same formats with much
+    // lower peak memory on this server.
+    noJsRuntimes: true,
+    jsRuntimes: 'node',
     addHeader: [
       'referer:https://www.youtube.com/',
     ],
@@ -1133,6 +1137,11 @@ async function getAudioUrl(url) {
       const info = await runYtdlp(url, {
         ...getYtdlpBaseOptions(clientChains[i]),
         dumpSingleJson: true,
+        skipDownload: true,
+        // Some videos expose only a combined A/V fallback until their JS
+        // challenge is solved. Prefer audio-only, but accept that fallback so
+        // FFmpeg can still strip the video track and play the audio.
+        format: 'bestaudio/best',
       });
 
       const audioUrl = getBestAudioUrl(info);

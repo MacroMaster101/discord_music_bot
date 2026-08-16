@@ -10,13 +10,6 @@ RUN apt-get update && apt-get install -y \
     unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Install deno (JS runtime required by modern yt-dlp YouTube extraction).
-RUN wget -q https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip -O /tmp/deno.zip \
-    && unzip -q /tmp/deno.zip -d /usr/local/bin \
-    && chmod +x /usr/local/bin/deno \
-    && rm /tmp/deno.zip \
-    && /usr/local/bin/deno --version
-
 # Set working directory
 WORKDIR /app
 
