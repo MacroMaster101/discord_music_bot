@@ -1,12 +1,10 @@
 FROM node:22-slim
 
 # Install runtime tools for Discord voice playback and yt-dlp.
-# python3 + pip needed to install the bgutil yt-dlp plugin; unzip for deno.
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     ffmpeg \
     python3 \
-    python3-pip \
     wget \
     unzip \
     && rm -rf /var/lib/apt/lists/*
@@ -29,16 +27,20 @@ COPY package*.json ./
 RUN npm ci --omit=dev \
     && rm -rf node_modules/ffmpeg-static/ffmpeg node_modules/ffmpeg-static/ffmpeg.exe 2>/dev/null; true
 
-# Download latest yt-dlp binary and replace the bundled one.
-RUN wget -q https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp \
+# yt-dlp recommends the nightly channel for site breakages. Install its portable
+# binary and replace the older binary bundled by youtube-dl-exec.
+RUN wget -q https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp \
     && chmod +x /usr/local/bin/yt-dlp \
     && cp /usr/local/bin/yt-dlp ./node_modules/youtube-dl-exec/bin/yt-dlp
 
-# Install the bgutil yt-dlp PO-token plugin into yt-dlp's system plugin dir.
-# yt-dlp scans /etc/yt-dlp/plugins for plugin packages.
-RUN pip install --no-cache-dir --break-system-packages \
-        --target /etc/yt-dlp/plugins/bgutil \
-        bgutil-ytdlp-pot-provider \
+# Install the exact bgutil plugin release used by the Compose sidecar. The
+# portable yt-dlp binary does not discover arbitrary pip site-packages, but it
+# does discover plugin archives in this standard system plugin directory.
+ARG BGUTIL_VERSION=1.3.1
+RUN mkdir -p /etc/yt-dlp/plugins \
+    && wget -q "https://github.com/Brainicism/bgutil-ytdlp-pot-provider/releases/download/${BGUTIL_VERSION}/bgutil-ytdlp-pot-provider.zip" \
+        -O /etc/yt-dlp/plugins/bgutil-ytdlp-pot-provider.zip \
+    && unzip -l /etc/yt-dlp/plugins/bgutil-ytdlp-pot-provider.zip | grep -q 'yt_dlp_plugins/' \
     && apt-get purge -y unzip && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 # Copy application files

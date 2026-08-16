@@ -75,16 +75,16 @@ let presenceInterval = null;
 
 const PRESENCE_ROTATE_MS = 12000;
 
-// Player client fallback chains — tried in order when YouTube blocks a request
-// Order matters: lead with clients whose googlevideo stream URLs actually
-// download from a datacenter IP. web_embedded extracts but its media 403s,
-// so it is no longer first. mweb + android_vr (default) download cleanly with
-// the bgutil WEB PO token; web_embedded kept last as a fallback.
+// Player clients — tried one at a time when YouTube blocks a request.
+// Do not combine mweb with `default`: a combined extraction can return formats
+// from a different client and our format picker may then choose a URL that does
+// not carry the mweb GVS PO token. mweb is yt-dlp's recommended client when a
+// PO-token provider is installed; the remaining clients are limited fallbacks.
 const PLAYER_CLIENT_CHAINS = [
-  'mweb,default',
-  'default',
-  'tv_simply,default,-tv',
-  'web_embedded,default',
+  'mweb',
+  'android_vr',
+  'web_embedded',
+  'web_safari',
 ];
 
 if (!TOKEN) {
@@ -138,8 +138,10 @@ function getYtdlpBaseOptions(playerClientOverride) {
     opts.cookies = tempCookiesPath;
   }
   // Legacy manual PO token still honored if explicitly set (auto-provider preferred).
+  // Modern yt-dlp requires CLIENT.CONTEXT+TOKEN; this token is for GVS media URLs.
   if (YTDLP_PO_TOKEN) {
-    opts.extractorArgs[0] += `;po_token=web+${YTDLP_PO_TOKEN}`;
+    const tokenClient = playerClient.split(',')[0];
+    opts.extractorArgs[0] += `;po_token=${tokenClient}.gvs+${YTDLP_PO_TOKEN}`;
   }
   return opts;
 }
@@ -821,7 +823,6 @@ async function getSongFromUrl(input) {
         id: createSongId(),
         title: videoInfo.title || url,
         url: videoInfo.webpage_url || videoInfo.original_url || url,
-        streamUrl: getBestAudioUrl(videoInfo),
         duration: videoInfo.duration || null,
         thumbnail: videoInfo.thumbnail || (videoInfo.thumbnails && videoInfo.thumbnails[videoInfo.thumbnails.length - 1]?.url) || null,
       };
@@ -928,7 +929,9 @@ async function playSong(guildId, song, seekSeconds = 0) {
     serverQueue.playbackStartedAt = Date.now() - (seekSeconds * 1000);
     serverQueue.seekOffset = seekSeconds;
 
-    const audioUrl = song.streamUrl || await getAudioUrl(song.url);
+    // Resolve immediately before playback. Googlevideo URLs are short-lived and
+    // queue-time URLs may have expired by the time a track starts (or after seek).
+    const audioUrl = await getAudioUrl(song.url);
 
     if (!audioUrl) {
       throw new Error('yt-dlp did not return an audio URL');

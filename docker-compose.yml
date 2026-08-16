@@ -1,10 +1,14 @@
 services:
   bot:
-    build: .
+    build:
+      context: .
+      args:
+        BGUTIL_VERSION: ${BGUTIL_VERSION:-1.3.1}
     container_name: discord-music-bot
     restart: unless-stopped
     depends_on:
-      - bgutil-provider
+      bgutil-provider:
+        condition: service_healthy
     ports:
       - "8080:8080"
     volumes:
@@ -12,10 +16,16 @@ services:
       - ./.env:/app/.env
 
   bgutil-provider:
-    image: brainicism/bgutil-ytdlp-pot-provider:latest
+    image: brainicism/bgutil-ytdlp-pot-provider:${BGUTIL_VERSION:-1.3.1}
     container_name: bgutil-provider
     restart: unless-stopped
     # Provider listens on 4416 inside the compose network.
     # Not published to the host — only the bot needs to reach it.
     expose:
       - "4416"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4416/ping').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
