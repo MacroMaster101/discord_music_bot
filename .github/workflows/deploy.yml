@@ -19,12 +19,28 @@ jobs:
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
           envs: YTDLP_COOKIES_BASE64
+          command_timeout: 15m
+          script_stop: true
           script: |
+            set -eu
             cd ~/discord_music_bot
-            git pull origin main
+            attempt=1
+            until git pull --ff-only origin main; do
+              if [ "$attempt" -ge 3 ]; then
+                echo "git pull failed after 3 attempts"
+                exit 1
+              fi
+              echo "git pull failed; retrying in 5 seconds..."
+              attempt=$((attempt + 1))
+              sleep 5
+            done
             install -d -m 700 data
-            if [ -n "$YTDLP_COOKIES_BASE64" ]; then
+            if [ -n "${YTDLP_COOKIES_BASE64:-}" ]; then
               printf '%s' "$YTDLP_COOKIES_BASE64" | base64 --decode > data/cookies.txt
               chmod 600 data/cookies.txt
             fi
             docker compose up -d --build
+            sleep 5
+            docker compose ps
+            docker compose logs --tail=50 bot
+            test "$(docker inspect --format '{{.State.Running}}' discord-music-bot)" = "true"

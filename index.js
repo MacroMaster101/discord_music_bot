@@ -981,9 +981,9 @@ async function playSong(guildId, song, seekSeconds = 0) {
       '-reconnect_on_http_error', '4xx,5xx',
       '-reconnect_delay_max', '30',
       '-rw_timeout', '15000000',
-      // Give variable-rate YouTube streams enough socket and demux buffering to
-      // ride out short network stalls instead of starving Discord's encoder.
-      '-buffer_size', '4194304',
+      // Let FFmpeg buffer incoming packets before decoding. `buffer_size` is
+      // not a valid option in the Debian FFmpeg build used by this container
+      // and makes FFmpeg exit immediately before any audio is produced.
       '-thread_queue_size', '8192',
     ];
     if (seekSeconds > 0) {
