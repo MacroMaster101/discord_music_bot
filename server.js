@@ -65,20 +65,26 @@ function getRequestToken(req) {
   return bearer?.[1] || req.headers['x-admin-token'] || '';
 }
 
+function getCloudflareIdentity(req) {
+  const email = String(req.headers['cf-access-authenticated-user-email'] || '').trim();
+  const assertion = String(req.headers['cf-access-jwt-assertion'] || '').trim();
+  const ray = String(req.headers['cf-ray'] || '').trim();
+  return email && assertion && ray ? email : '';
+}
+
 function isAdminRequest(req, token = ADMIN_TOKEN) {
-  return Boolean(token) && safeEqual(getRequestToken(req), token);
+  return Boolean(getCloudflareIdentity(req))
+    || (Boolean(token) && safeEqual(getRequestToken(req), token));
 }
 
 function requireAdmin(req, res) {
+  if (isAdminRequest(req)) return true;
   if (!ADMIN_TOKEN) {
-    sendJson(res, 503, { error: 'ADMIN_TOKEN is not configured on the server.' });
+    sendJson(res, 503, { error: 'Cloudflare Access identity unavailable and ADMIN_TOKEN is not configured.' });
     return false;
   }
-  if (!isAdminRequest(req)) {
-    sendJson(res, 401, { error: 'Invalid admin token.' });
-    return false;
-  }
-  return true;
+  sendJson(res, 401, { error: 'Cloudflare Access session or admin token is invalid.' });
+  return false;
 }
 
 function readJson(req, maxBytes = 32 * 1024) {
@@ -288,7 +294,7 @@ function createDashboardServer(client, queue, hooks = {}) {
         if (req.method === 'GET' && pathname === '/api/admin/stats') {
           return sendJson(res, 200, {
             ...buildAdminPayload(client, queue, hooks),
-            accessEmail: req.headers['cf-access-authenticated-user-email'] || null,
+            accessEmail: getCloudflareIdentity(req) || null,
           });
         }
         if (req.method === 'GET' && pathname === '/api/admin/guilds') {

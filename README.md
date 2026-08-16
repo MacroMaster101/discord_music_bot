@@ -12,7 +12,7 @@ A premium, self-hostable Discord music player featuring a glassmorphic web dashb
 ## ✨ Key Features 🚀
 
 - 📊 **Public Status Dashboard** — A public-safe status page with bot health, aggregate reach, active track titles, live progress, and rolling activity graphs. It never publishes Discord server IDs/names, voice channels, users, queues, logs, or system telemetry.
-- 🔐 **Protected Admin Console** — Cloudflare Access plus a server-side admin token protect playback controls, queues, command logs, runtime telemetry, and global/per-server settings CRUD.
+- 🔐 **Protected Admin Console** — Cloudflare Access protects playback controls, queues, command logs, runtime telemetry, and global/per-server settings CRUD; a server-side token remains available for local/recovery access.
 - 🎛️ **Full Web Remote** — Drive the bot from the browser: play/pause, restart, skip, stop, ±10s, **click-to-seek**, loop, shuffle, volume, queue management (reorder/remove/clear), and add songs by URL or search.
 - 🎵 **Advanced Playback** — Play via search query or direct URL (`youtube.com`, `youtu.be`, `/shorts/`, `/live/`).
 - 🔍 **Interactive Search** — `!search` lets you pick from the top 5 YouTube results with Discord buttons.
@@ -75,7 +75,7 @@ Copy `.env.example` to `.env` and fill in:
 | Variable | Required | Purpose |
 | :--- | :--- | :--- |
 | `TOKEN` | ✅ | Discord bot token. |
-| `ADMIN_TOKEN` | ✅ for admin | Protects every `/api/admin/*` endpoint. Use a long, unique random value and never expose it in Git or Cloudflare configuration. |
+| `ADMIN_TOKEN` | ✅ for recovery | Local/emergency fallback for `/api/admin/*`. Cloudflare Access-authenticated tunnel requests enter automatically. Use a long, unique value and never commit it. |
 | `PORT` | optional | Dashboard HTTP port (default `8080`). |
 | `DASHBOARD_BIND_ADDRESS` | optional | Host bind address for port `8080`; use `127.0.0.1` with Cloudflare Tunnel. |
 | `COMPOSE_PROFILES` | tunnel only | Set to `tunnel` to start the `cloudflared` sidecar. |
@@ -126,7 +126,7 @@ The dashboard is served on port `8080`. Direct IP access should be used only dur
 
 Cloudflare path wildcards do not include the parent path, which is why both `admin` and `admin/*` are listed. The tunnel route should use origin service URL `http://bot:8080`; public HTTPS terminates at Cloudflare, so the private Docker-network hop correctly remains HTTP.
 
-The workflow stores the token only in the EC2 `.env`, enables the `tunnel` Compose profile, binds host port `8080` to localhost, waits for the bot dashboard health check, and starts `cloudflared`. After `https://music.j4fn.site` is verified, remove the AWS security-group inbound rule for TCP `8080`. Keep `ADMIN_TOKEN` enabled as defense in depth.
+The workflow stores the token only in the EC2 `.env`, enables the `tunnel` Compose profile, binds host port `8080` to localhost, waits for the bot dashboard health check, and starts `cloudflared`. After `https://music.j4fn.site` is verified, remove the AWS security-group inbound rule for TCP `8080`. Keep `ADMIN_TOKEN` as a local recovery fallback.
 
 ### Dashboard routes and privacy boundary
 
@@ -137,9 +137,9 @@ The workflow stores the token only in the EC2 `.env`, enables the `tunnel` Compo
 | `/api/public/history` | Public | In-memory aggregate chart history |
 | `/healthz` | Public/monitor | Minimal bot readiness result |
 | `/admin/` | Cloudflare Access admins | Admin user interface |
-| `/api/admin/*` | Access admins + `ADMIN_TOKEN` | Guilds, controls, queues, logs, telemetry, and settings CRUD |
+| `/api/admin/*` | Cloudflare Access admin or recovery `ADMIN_TOKEN` | Guilds, controls, queues, logs, telemetry, and settings CRUD |
 
-The public payload is covered by an automated privacy regression test. The admin token is sent as a bearer token and retained only in browser `sessionStorage`, so closing the tab/session clears it.
+The public payload is covered by an automated privacy regression test. Access-authenticated tunnel requests are recognized from Cloudflare's identity and assertion headers. The optional recovery token is sent as a bearer token and retained only in browser `sessionStorage`, so closing the tab/session clears it. Keep the origin bound to localhost and reachable only through the Tunnel.
 
 ### 3. (Optional) GitHub Actions auto-deploy
 

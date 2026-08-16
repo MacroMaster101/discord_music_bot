@@ -73,6 +73,16 @@ test('admin token comparison accepts bearer and legacy header tokens', () => {
   assert.equal(isAdminRequest({ headers: { authorization: 'Bearer wrong' } }, 'secret'), false);
 });
 
+test('Cloudflare Access identity authorizes tunneled admin requests', () => {
+  const accessHeaders = {
+    'cf-access-authenticated-user-email': 'admin@example.com',
+    'cf-access-jwt-assertion': 'signed-access-assertion',
+    'cf-ray': 'preview-ray',
+  };
+  assert.equal(isAdminRequest({ headers: accessHeaders }, ''), true);
+  assert.equal(isAdminRequest({ headers: { 'cf-access-authenticated-user-email': 'spoof@example.com' } }, ''), false);
+});
+
 let dashboard;
 let baseUrl;
 
@@ -123,6 +133,16 @@ test('admin APIs reject anonymous requests and allow the configured token', asyn
   const payload = await allowed.json();
   assert.equal(payload.activeTracks[0].guildName, 'Private Guild Name');
   assert.equal(payload.commandLog[0].userName, 'Private User');
+
+  const accessAllowed = await fetch(`${baseUrl}/api/admin/stats`, {
+    headers: {
+      'Cf-Access-Authenticated-User-Email': 'admin@example.com',
+      'Cf-Access-Jwt-Assertion': 'signed-access-assertion',
+      'Cf-Ray': 'test-ray',
+    },
+  });
+  assert.equal(accessAllowed.status, 200);
+  assert.equal((await accessAllowed.json()).accessEmail, 'admin@example.com');
 });
 
 test('admin redirect and malformed control requests fail safely', async () => {

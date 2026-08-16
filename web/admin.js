@@ -30,7 +30,8 @@
   };
 
   async function api(path, options = {}) {
-    const headers = { ...(options.headers || {}), Authorization: `Bearer ${token()}` };
+    const headers = { ...(options.headers || {}) };
+    if (token()) headers.Authorization = `Bearer ${token()}`;
     if (options.body) headers['Content-Type'] = 'application/json';
     const response = await fetch(path, { ...options, headers, cache: 'no-store' });
     let data = {};
@@ -114,7 +115,6 @@
   }
 
   async function refreshAdmin() {
-    if (!token()) return;
     try {
       const data = await api('/api/admin/stats');
       $('a-status').textContent = data.status === 'online' ? 'Online' : 'Connecting';
@@ -133,7 +133,7 @@
     } catch (error) {
       if (error.status === 401) {
         sessionStorage.removeItem('j4fnAdminToken');
-        setLocked(true, 'That admin token was rejected.');
+        setLocked(true, 'Cloudflare Access session or admin token was rejected.');
       } else {
         toast(error.message, 'error');
       }
@@ -301,15 +301,10 @@
     if (result?.ok) form.reset();
   });
 
-  if (token()) {
-    $('admin-token').value = token();
-    Promise.all([refreshAdmin(), loadGuilds()]).then(async () => {
-      if (!token()) return;
-      setLocked(false);
-      await loadSettings();
-      state.refreshTimer = setInterval(refreshAdmin, 6000);
-    }).catch(() => setLocked(true, 'Unlock the console again.'));
-  } else {
-    setLocked(true);
-  }
+  if (token()) $('admin-token').value = token();
+  Promise.all([refreshAdmin(), loadGuilds()]).then(async () => {
+    setLocked(false);
+    await loadSettings();
+    state.refreshTimer = setInterval(refreshAdmin, 6000);
+  }).catch(() => setLocked(true, 'Sign in with Cloudflare Access or use the emergency admin token.'));
 })();
