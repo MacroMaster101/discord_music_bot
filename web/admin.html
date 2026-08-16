@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="theme-color" content="#e51f38">
+  <title>J4FN MUSIC · Admin</title>
+  <link rel="icon" href="/assets/favicon.png" type="image/png" sizes="256x256">
+  <link rel="apple-touch-icon" href="/assets/logo.png">
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/admin.js" defer></script>
+</head>
+<body class="admin-page">
+  <div class="ambient ambient-one"></div>
+  <div class="site-shell">
+    <nav class="topbar">
+      <a class="brand" href="/"><span class="brand-mark"><img src="/assets/favicon.png" alt=""></span><span><strong>J4FN ADMIN</strong><small>Protected operations console</small></span></a>
+      <div class="nav-links"><a href="/">← Public status</a><span class="status-chip waiting" id="admin-status"><i></i><span>LOCKED</span></span></div>
+    </nav>
+
+    <main>
+      <section class="admin-hero">
+        <div><span class="kicker">CONTROL PLANE</span><h1>Music operations</h1><p>Monitor every active room, manage queues, and configure global or per-server behavior.</p></div>
+        <div class="identity-card"><span>Cloudflare identity</span><strong id="access-email">Awaiting identity</strong></div>
+      </section>
+
+      <section class="unlock-card" id="unlock-card">
+        <div><span class="lock-icon">⌁</span><div><strong>Unlock administrative actions</strong><p>Cloudflare Access is the first gate. Your server admin token is the second.</p></div></div>
+        <form id="unlock-form"><label class="sr-only" for="admin-token">Admin token</label><input id="admin-token" type="password" autocomplete="current-password" placeholder="Paste ADMIN_TOKEN" required><button class="button button-primary" type="submit">Unlock</button></form>
+        <p class="form-message" id="unlock-message" role="status"></p>
+      </section>
+
+      <div id="admin-content" class="admin-content is-locked" aria-hidden="true">
+        <section class="metric-grid admin-metrics">
+          <article class="metric"><span>Status</span><strong id="a-status">—</strong><small>Discord gateway</small></article>
+          <article class="metric"><span>Servers</span><strong id="a-guilds">—</strong><small id="a-audience">— audience</small></article>
+          <article class="metric"><span>Live rooms</span><strong id="a-streams">—</strong><small>active sessions</small></article>
+          <article class="metric"><span>Memory</span><strong id="a-memory">—</strong><small>resident process</small></article>
+          <article class="metric"><span>Gateway</span><strong id="a-ping">—</strong><small>Discord latency</small></article>
+        </section>
+
+        <section class="section admin-section">
+          <div class="section-heading"><div><span class="kicker">PLAYBACK</span><h2>Active rooms</h2></div><button class="button button-quiet" id="refresh-admin" type="button">Refresh</button></div>
+          <div id="admin-tracks" class="admin-track-list"><div class="empty-state"><span>♬</span><strong>No active rooms</strong><p>Start playback in Discord to manage it here.</p></div></div>
+        </section>
+
+        <section class="admin-grid">
+          <article class="section settings-card">
+            <div class="section-heading"><div><span class="kicker">CONFIGURATION</span><h2>Settings CRUD</h2></div><span class="saved-state" id="settings-state">Ready</span></div>
+            <div class="scope-row"><button class="scope-button active" type="button" data-scope="global">Global defaults</button><button class="scope-button" type="button" data-scope="guild">Server override</button></div>
+            <div class="field" id="guild-field" hidden><label for="guild-select">Discord server</label><select id="guild-select"><option value="">Choose a server</option></select></div>
+            <form id="settings-form" class="settings-form">
+              <div class="field"><label for="setting-prefix">Command prefix</label><input id="setting-prefix" maxlength="5" required><small id="effective-prefix"></small></div>
+              <div class="field"><label for="setting-volume">Default volume <output id="volume-output">100%</output></label><input id="setting-volume" type="range" min="0" max="100"><small id="effective-volume"></small></div>
+              <div class="form-grid"><div class="field"><label for="setting-idle">Idle disconnect</label><div class="input-suffix"><input id="setting-idle" type="number" min="5" max="3600" required><span>sec</span></div></div><div class="field"><label for="setting-empty">Empty room timeout</label><div class="input-suffix"><input id="setting-empty" type="number" min="10" max="3600" required><span>sec</span></div></div></div>
+              <label class="toggle-row"><span><strong>Auto-pause empty rooms</strong><small>Pause when the last listener leaves.</small></span><input id="setting-autopause" type="checkbox"><i></i></label>
+              <div class="form-actions"><button class="button button-danger" id="reset-settings" type="button">Delete/reset scope</button><button class="button button-primary" type="submit">Save settings</button></div>
+            </form>
+          </article>
+
+          <div class="side-stack">
+            <article class="section"><div class="section-heading"><div><span class="kicker">SYSTEM</span><h2>Runtime</h2></div></div><dl class="runtime-grid"><div><dt>Operating system</dt><dd id="sys-os">—</dd></div><div><dt>Node.js</dt><dd id="sys-node">—</dd></div><div><dt>CPU cores</dt><dd id="sys-cpu">—</dd></div><div><dt>Uptime</dt><dd id="sys-uptime">—</dd></div></dl></article>
+            <article class="section"><div class="section-heading"><div><span class="kicker">AUDIT FEED</span><h2>Recent commands</h2></div></div><div id="command-log" class="command-log"><p class="muted">No commands recorded yet.</p></div></article>
+          </div>
+        </section>
+      </div>
+    </main>
+    <footer><span class="footer-brand"><img src="/assets/favicon.png" alt="">J4FN MUSIC / ADMIN</span><button class="text-button" id="lock-admin" type="button">Lock console</button></footer>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+</body>
+</html>

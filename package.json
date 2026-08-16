@@ -6,7 +6,8 @@
   "license": "MIT",
   "scripts": {
     "start": "node index.js",
-    "check": "node --check index.js"
+    "check": "node --check index.js && node --check server.js && node --check settings.js && node --check web/public.js && node --check web/admin.js",
+    "test": "node --test --test-isolation=none"
   },
   "engines": {
     "node": ">=22.12.0"

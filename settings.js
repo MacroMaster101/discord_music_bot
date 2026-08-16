@@ -104,6 +104,12 @@ function resetGuild(guildId) {
   scheduleSave();
 }
 
+function resetGlobal() {
+  state.global = { ...DEFAULTS };
+  scheduleSave();
+  return state.global;
+}
+
 function sanitize(patch) {
   const out = {};
   if (patch.prefix !== undefined) {
@@ -138,6 +144,7 @@ module.exports = {
   setGlobal,
   setGuild,
   resetGuild,
+  resetGlobal,
   getDefaults,
   getKeys,
   DEFAULTS,

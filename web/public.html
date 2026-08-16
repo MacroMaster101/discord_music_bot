@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Live status, now-playing activity, and commands for the J4FN Music Discord bot.">
+  <meta name="theme-color" content="#e51f38">
+  <title>J4FN MUSIC · Live</title>
+  <link rel="icon" href="/assets/favicon.png" type="image/png" sizes="256x256">
+  <link rel="apple-touch-icon" href="/assets/logo.png">
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/public.js" defer></script>
+</head>
+<body class="public-page">
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+  <div class="site-shell">
+    <nav class="topbar" aria-label="Main navigation">
+      <a class="brand" href="/" aria-label="J4FN Music home">
+        <span class="brand-mark" id="brand-mark"><img src="/assets/favicon.png" alt=""></span>
+        <span><strong id="brand-name">J4FN MUSIC</strong><small>Discord audio, alive</small></span>
+      </a>
+      <div class="nav-links">
+        <a href="#status">Status</a>
+        <a href="#live">Now playing</a>
+        <a href="#commands">Commands</a>
+        <a class="button button-quiet" href="/admin/">Admin</a>
+      </div>
+    </nav>
+
+    <main>
+      <section class="hero" id="status">
+        <div class="hero-copy">
+          <div class="eyebrow"><span class="live-dot"></span><span id="hero-state">Checking the signal</span></div>
+          <h1>One bot.<br><span>Every room in rhythm.</span></h1>
+          <p>Follow J4FN Music in real time—service health, current tracks, activity trends, and the commands that keep the queue moving.</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="#live">See what’s playing</a>
+            <a class="button button-quiet" href="#commands">Browse commands</a>
+          </div>
+        </div>
+        <div class="signal-card" aria-label="Live bot status">
+          <div class="signal-orbit"><div class="signal-core" id="bot-avatar"><img src="/assets/logo.png" alt="J4FN Music logo"></div></div>
+          <div class="signal-copy"><span>LIVE SIGNAL</span><strong id="signal-status">Connecting</strong><small id="signal-tag">Discord gateway</small></div>
+          <div class="signal-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        </div>
+      </section>
+
+      <section class="metric-grid" aria-label="Service statistics">
+        <article class="metric"><span>Uptime</span><strong id="metric-uptime">—</strong><small>since last deploy</small></article>
+        <article class="metric"><span>Servers</span><strong id="metric-guilds">—</strong><small id="metric-audience">— listeners in reach</small></article>
+        <article class="metric"><span>Live rooms</span><strong id="metric-streams">—</strong><small>playing right now</small></article>
+        <article class="metric"><span>Tracks played</span><strong id="metric-tracks">—</strong><small>this runtime</small></article>
+        <article class="metric"><span>Gateway</span><strong id="metric-ping">—</strong><small>Discord latency</small></article>
+      </section>
+
+      <section class="section" id="live">
+        <div class="section-heading">
+          <div><span class="kicker">LIVE ROOMS</span><h2>Now playing</h2></div>
+          <span class="updated" id="last-updated">Waiting for the first update</span>
+        </div>
+        <div id="public-tracks" class="track-grid">
+          <div class="empty-state"><span>♬</span><strong>The stage is quiet</strong><p>Active tracks will appear here automatically.</p></div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-heading">
+          <div><span class="kicker">PULSE</span><h2>Activity trends</h2></div>
+          <span class="updated">Rolling two-hour window</span>
+        </div>
+        <div class="chart-grid">
+          <article class="chart-card">
+            <div class="chart-title"><div><span>Discord latency</span><strong id="chart-ping-value">—</strong></div><em>milliseconds</em></div>
+            <svg class="chart" viewBox="0 0 600 180" preserveAspectRatio="none" role="img" aria-label="Discord latency history"><defs><linearGradient id="ping-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7c5cff" stop-opacity=".4"/><stop offset="1" stop-color="#7c5cff" stop-opacity="0"/></linearGradient></defs><path id="ping-area" class="chart-area" fill="url(#ping-fill)"></path><polyline id="ping-line" class="chart-line"></polyline></svg>
+          </article>
+          <article class="chart-card">
+            <div class="chart-title"><div><span>Active rooms</span><strong id="chart-stream-value">—</strong></div><em>concurrent streams</em></div>
+            <svg class="chart" viewBox="0 0 600 180" preserveAspectRatio="none" role="img" aria-label="Active stream history"><defs><linearGradient id="stream-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff4fb8" stop-opacity=".35"/><stop offset="1" stop-color="#ff4fb8" stop-opacity="0"/></linearGradient></defs><path id="stream-area" class="chart-area" fill="url(#stream-fill)"></path><polyline id="stream-line" class="chart-line chart-line-pink"></polyline></svg>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="commands">
+        <div class="section-heading"><div><span class="kicker">QUICK START</span><h2>Run the room</h2></div><span class="updated">Prefix <code id="command-prefix">!</code></span></div>
+        <div class="command-grid">
+          <article><code data-command="play <song>">!play &lt;song&gt;</code><p>Search YouTube or play a URL.</p></article>
+          <article><code data-command="search <query>">!search &lt;query&gt;</code><p>Choose from the top matches.</p></article>
+          <article><code data-command="playlist <url>">!playlist &lt;url&gt;</code><p>Queue a complete playlist.</p></article>
+          <article><code data-command="queue">!queue</code><p>See what is coming next.</p></article>
+          <article><code data-command="nowplaying">!nowplaying</code><p>Open the live progress card.</p></article>
+          <article><code data-command="seek 1:30">!seek 1:30</code><p>Jump to a specific moment.</p></article>
+          <article><code data-command="loop">!loop</code><p>Cycle song, queue, and off.</p></article>
+          <article><code data-command="lyrics">!lyrics</code><p>Find lyrics for the current track.</p></article>
+        </div>
+      </section>
+
+      <aside class="privacy-note"><span>◎</span><div><strong>Public by design, private by default.</strong><p>This page publishes aggregate service health and music titles only. Server identities, channels, command logs, settings, and controls stay inside the admin console.</p></div></aside>
+    </main>
+
+    <footer><span class="footer-brand"><img src="/assets/favicon.png" alt="">J4FN MUSIC</span><span>Powered by Discord, yt-dlp &amp; Cloudflare Tunnel</span><a href="/admin/">Admin console →</a></footer>
+  </div>
+</body>
+</html>

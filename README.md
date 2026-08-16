@@ -11,8 +11,9 @@ A premium, self-hostable Discord music player featuring a glassmorphic web dashb
 
 ## ✨ Key Features 🚀
 
-- 📊 **Web Dashboard** — Dark-mode dashboard with live-ticking uptime, system telemetry, real-time progress bars, and per-server configuration.
-- 🎛️ **Full Web Remote** — Drive the bot from the browser: play/pause, restart, skip, stop, ±10s, **click-to-seek**, loop, shuffle, volume, queue management (reorder/remove/clear), and add songs by URL or search. All control actions are gated by an admin token.
+- 📊 **Public Status Dashboard** — A public-safe status page with bot health, aggregate reach, active track titles, live progress, and rolling activity graphs. It never publishes Discord server IDs/names, voice channels, users, queues, logs, or system telemetry.
+- 🔐 **Protected Admin Console** — Cloudflare Access plus a server-side admin token protect playback controls, queues, command logs, runtime telemetry, and global/per-server settings CRUD.
+- 🎛️ **Full Web Remote** — Drive the bot from the browser: play/pause, restart, skip, stop, ±10s, **click-to-seek**, loop, shuffle, volume, queue management (reorder/remove/clear), and add songs by URL or search.
 - 🎵 **Advanced Playback** — Play via search query or direct URL (`youtube.com`, `youtu.be`, `/shorts/`, `/live/`).
 - 🔍 **Interactive Search** — `!search` lets you pick from the top 5 YouTube results with Discord buttons.
 - 📂 **Playlist Handler** — Queue full YouTube playlists via `!playlist`.
@@ -74,7 +75,7 @@ Copy `.env.example` to `.env` and fill in:
 | Variable | Required | Purpose |
 | :--- | :--- | :--- |
 | `TOKEN` | ✅ | Discord bot token. |
-| `ADMIN_TOKEN` | recommended | Protects dashboard editing **and all web playback controls**. Pick a long random string. |
+| `ADMIN_TOKEN` | ✅ for admin | Protects every `/api/admin/*` endpoint. Use a long, unique random value and never expose it in Git or Cloudflare configuration. |
 | `PORT` | optional | Dashboard HTTP port (default `8080`). |
 | `DASHBOARD_BIND_ADDRESS` | optional | Host bind address for port `8080`; use `127.0.0.1` with Cloudflare Tunnel. |
 | `COMPOSE_PROFILES` | tunnel only | Set to `tunnel` to start the `cloudflared` sidecar. |
@@ -114,10 +115,31 @@ The dashboard is served on port `8080`. Direct IP access should be used only dur
 1. Add the domain to Cloudflare and wait until its status is **Active**.
 2. In Cloudflare, go to **Networking → Tunnels**, create a remotely-managed tunnel named `j4fn-music-dashboard`, and copy only its raw token.
 3. Add a published-application route with hostname `music.j4fn.site` and service URL `http://bot:8080`.
-4. Protect the hostname with a Cloudflare Access self-hosted application. Use an **Allow** policy containing only the exact administrator email addresses; do not use `Everyone` or unrestricted One-time PIN access.
-5. Add the raw token as the GitHub Actions secret `CLOUDFLARE_TUNNEL_TOKEN`, then deploy `main`.
+4. Create a Cloudflare Access self-hosted application for the same hostname, but protect **only** these four destinations:
+   - `music.j4fn.site/admin`
+   - `music.j4fn.site/admin/*`
+   - `music.j4fn.site/api/admin`
+   - `music.j4fn.site/api/admin/*`
+5. Remove any existing blank-path/whole-host destination for `music.j4fn.site`; otherwise Cloudflare will also require login for the public `/` page and `/api/public/*` APIs.
+6. Use an **Allow** policy containing only exact administrator email addresses. Do not use `Everyone`. Keep the application session short enough for your team (for example, 24 hours).
+7. Add the raw tunnel token as the GitHub Actions secret `CLOUDFLARE_TUNNEL_TOKEN`, then deploy `main`.
 
-The workflow stores the token only in the EC2 `.env`, enables the `tunnel` Compose profile, binds host port `8080` to localhost, and starts `cloudflared`. After `https://music.j4fn.site` is verified, remove the AWS security-group inbound rule for TCP `8080`. Keep `ADMIN_TOKEN` enabled as defense in depth.
+Cloudflare path wildcards do not include the parent path, which is why both `admin` and `admin/*` are listed. The tunnel route should use origin service URL `http://bot:8080`; public HTTPS terminates at Cloudflare, so the private Docker-network hop correctly remains HTTP.
+
+The workflow stores the token only in the EC2 `.env`, enables the `tunnel` Compose profile, binds host port `8080` to localhost, waits for the bot dashboard health check, and starts `cloudflared`. After `https://music.j4fn.site` is verified, remove the AWS security-group inbound rule for TCP `8080`. Keep `ADMIN_TOKEN` enabled as defense in depth.
+
+### Dashboard routes and privacy boundary
+
+| Route | Audience | Contents |
+| :--- | :--- | :--- |
+| `/` | Public | Aggregate service status, active song titles/progress, graphs, and commands |
+| `/api/public/status` | Public | Public-safe current snapshot |
+| `/api/public/history` | Public | In-memory aggregate chart history |
+| `/healthz` | Public/monitor | Minimal bot readiness result |
+| `/admin/` | Cloudflare Access admins | Admin user interface |
+| `/api/admin/*` | Access admins + `ADMIN_TOKEN` | Guilds, controls, queues, logs, telemetry, and settings CRUD |
+
+The public payload is covered by an automated privacy regression test. The admin token is sent as a bearer token and retained only in browser `sessionStorage`, so closing the tab/session clears it.
 
 ### 3. (Optional) GitHub Actions auto-deploy
 
@@ -136,6 +158,13 @@ The workflow stores the token only in the EC2 `.env`, enables the `tunnel` Compo
 npm ci
 cp .env.example .env     # add TOKEN (+ ADMIN_TOKEN)
 npm start
+```
+
+Verify changes before deployment:
+
+```bash
+npm run check
+npm test
 ```
 
 > Local runs without the Docker image won't have the configured Node runtime + bgutil sidecar, so YouTube extraction may hit bot-checks. Docker Compose is the supported path.
@@ -165,6 +194,8 @@ discord_music_bot/
 ├── index.js              # Bot core: commands, playback, queue, control cores, buttons
 ├── server.js             # Dashboard HTTP server: telemetry + control API + UI
 ├── settings.js           # Per-guild + global settings manager (JSON-backed)
+├── web/                  # Public status and protected admin dashboard assets
+├── test/                 # Dashboard auth/privacy/API regression tests
 ├── package.json          # Dependencies
 ├── Dockerfile            # Bot image: ffmpeg, yt-dlp, bgutil plugin
 ├── docker-compose.yml    # bot + bgutil-provider + optional tunnel sidecar

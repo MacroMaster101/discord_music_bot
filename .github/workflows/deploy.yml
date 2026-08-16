@@ -6,7 +6,27 @@ on:
       - main
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Check JavaScript syntax
+        run: npm run check
+      - name: Run tests
+        run: npm test
+
   deploy:
+    needs: verify
     runs-on: ubuntu-latest
 
     steps:
@@ -37,6 +57,10 @@ jobs:
             done
             test -f .env
             chmod 600 .env
+            if ! grep -Eq '^ADMIN_TOKEN=.{24,}$' .env; then
+              echo "ADMIN_TOKEN must be set to at least 24 characters in the server .env"
+              exit 1
+            fi
             install -d -m 700 data
             if [ -n "${YTDLP_COOKIES_BASE64:-}" ]; then
               printf '%s' "$YTDLP_COOKIES_BASE64" | base64 --decode > data/cookies.txt
@@ -50,10 +74,23 @@ jobs:
               mv "$env_tmp" .env
             fi
             docker compose up -d --build --remove-orphans
-            sleep 5
+            health="starting"
+            for _ in $(seq 1 48); do
+              health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' discord-music-bot 2>/dev/null || true)"
+              if [ "$health" = "healthy" ]; then
+                break
+              fi
+              if [ "$health" = "unhealthy" ]; then
+                docker compose logs --tail=100 bot
+                echo "Bot container became unhealthy"
+                exit 1
+              fi
+              sleep 5
+            done
             docker compose ps
             docker compose logs --tail=50 bot
             test "$(docker inspect --format '{{.State.Running}}' discord-music-bot)" = "true"
+            test "$health" = "healthy"
             if grep -q '^COMPOSE_PROFILES=.*tunnel' .env; then
               docker compose logs --tail=30 cloudflared
               test "$(docker inspect --format '{{.State.Running}}' j4fn-cloudflared)" = "true"
