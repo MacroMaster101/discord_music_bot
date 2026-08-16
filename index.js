@@ -243,7 +243,7 @@ function reevaluateLoneliness(guildId, serverQueue) {
     // Pause playback if configured and not already paused
     if (getAutoPauseWhenAlone(guildId)
         && serverQueue.player.state.status === AudioPlayerStatus.Playing) {
-      serverQueue.player.pause();
+      pausePlayer(serverQueue);
       serverQueue.wasAutoPaused = true;
       console.log(`⏸️ Auto-paused in ${liveVc.name} (empty VC)`);
     }
@@ -272,7 +272,7 @@ function reevaluateLoneliness(guildId, serverQueue) {
     }
     if (serverQueue.wasAutoPaused
         && serverQueue.player.state.status === AudioPlayerStatus.Paused) {
-      serverQueue.player.unpause();
+      resumePlayer(serverQueue);
       console.log('▶️ Auto-resumed (humans returned)');
     }
     serverQueue.wasAutoPaused = false;
@@ -497,10 +497,10 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.customId === 'np_pause') {
     const isPaused = serverQueue.player.state.status === AudioPlayerStatus.Paused;
     if (isPaused) {
-      serverQueue.player.unpause();
+      resumePlayer(serverQueue);
       return interaction.reply({ content: '▶️ Resumed', ephemeral: true });
     } else {
-      serverQueue.player.pause();
+      pausePlayer(serverQueue);
       return interaction.reply({ content: '⏸️ Paused', ephemeral: true });
     }
   }
@@ -931,6 +931,7 @@ async function playSong(guildId, song, seekSeconds = 0) {
     serverQueue.currentSongId = song.id;
     serverQueue.advancingSongId = null;
     serverQueue.playbackStartedAt = Date.now() - (seekSeconds * 1000);
+    serverQueue.pausedAt = null;
     serverQueue.seekOffset = seekSeconds;
 
     // Resolve immediately before playback. Googlevideo URLs are short-lived and
@@ -948,6 +949,10 @@ async function playSong(guildId, song, seekSeconds = 0) {
       '-reconnect_on_http_error', '4xx,5xx',
       '-reconnect_delay_max', '30',
       '-rw_timeout', '15000000',
+      // Give variable-rate YouTube streams enough socket and demux buffering to
+      // ride out short network stalls instead of starving Discord's encoder.
+      '-buffer_size', '4194304',
+      '-thread_queue_size', '8192',
     ];
     if (seekSeconds > 0) {
       ffmpegArgs.push('-ss', String(seekSeconds));
@@ -955,7 +960,8 @@ async function playSong(guildId, song, seekSeconds = 0) {
     ffmpegArgs.push(
       '-i', audioUrl,
       '-vn',
-      '-analyzeduration', '0',
+      '-probesize', '65536',
+      '-analyzeduration', '1000000',
       '-loglevel', 'warning',
       '-f', 's16le',
       '-ar', '48000',
@@ -992,6 +998,12 @@ async function playSong(guildId, song, seekSeconds = 0) {
         playToken: myToken,
       },
     });
+
+    // Native @discordjs/opus is preferred in production. FEC helps conceal
+    // occasional voice-packet loss without changing the playback pipeline.
+    resource.encoder?.setBitrate(128000);
+    resource.encoder?.setFEC(true);
+    resource.encoder?.setPLP(0.1);
 
     const vol = serverQueue.targetVolume ?? (getDefaultVolume(guildId) / 100);
     serverQueue.targetVolume = vol;
@@ -1410,14 +1422,30 @@ function parseSeekTime(input) {
 
 function getElapsedSeconds(serverQueue) {
   if (!serverQueue?.playbackStartedAt) return 0;
-  return Math.floor((Date.now() - serverQueue.playbackStartedAt) / 1000);
+  const clock = serverQueue.pausedAt || Date.now();
+  return Math.floor((clock - serverQueue.playbackStartedAt) / 1000);
 }
 
-function buildProgressBar(elapsed, duration, length = 20) {
+function pausePlayer(serverQueue) {
+  const paused = serverQueue?.player?.pause();
+  if (paused && !serverQueue.pausedAt) serverQueue.pausedAt = Date.now();
+  return paused;
+}
+
+function resumePlayer(serverQueue) {
+  const resumed = serverQueue?.player?.unpause();
+  if (resumed && serverQueue.pausedAt) {
+    serverQueue.playbackStartedAt += Date.now() - serverQueue.pausedAt;
+    serverQueue.pausedAt = null;
+  }
+  return resumed;
+}
+
+function buildProgressBar(elapsed, duration, length = 32) {
   if (!duration || duration <= 0) return '─'.repeat(length);
   const ratio = Math.max(0, Math.min(1, elapsed / duration));
-  const pos = Math.floor(ratio * (length - 1));
-  return '─'.repeat(pos) + '🔘' + '─'.repeat(length - pos - 1);
+  const pos = Math.round(ratio * (length - 1));
+  return '━'.repeat(pos) + '🔘' + '─'.repeat(length - pos - 1);
 }
 
 // Send or edit the live "Now Playing" message. Posts a new one if the channel
@@ -1612,7 +1640,7 @@ function pause(message, serverQueue) {
   if (serverQueue.player.state.status === AudioPlayerStatus.Paused) {
     return message.reply('⏸️ Already paused! Use `' + getPrefix(message.guild.id) + 'resume` to continue.');
   }
-  serverQueue.player.pause();
+  pausePlayer(serverQueue);
   message.reply('⏸️ Paused!');
 }
 
@@ -1621,7 +1649,7 @@ function resume(message, serverQueue) {
   if (serverQueue.player.state.status !== AudioPlayerStatus.Paused) {
     return message.reply('▶️ Not currently paused!');
   }
-  serverQueue.player.unpause();
+  resumePlayer(serverQueue);
   message.reply('▶️ Resumed!');
 }
 
@@ -1906,7 +1934,7 @@ function pauseResumeCore(guildId) {
   const sq = queue.get(guildId);
   if (!sq) return { ok: false, error: 'Nothing is playing.' };
   const paused = sq.player.state.status === AudioPlayerStatus.Paused;
-  if (paused) sq.player.unpause(); else sq.player.pause();
+  if (paused) resumePlayer(sq); else pausePlayer(sq);
   return { ok: true, paused: !paused };
 }
 function skipCore(guildId) {

@@ -25,6 +25,7 @@ COPY package*.json ./
 # Install dependencies, then remove the huge ffmpeg-static binary (~100MB)
 # since we already have ffmpeg from apt-get above
 RUN npm ci --omit=dev \
+    && node -e "require('@discordjs/opus')" \
     && rm -rf node_modules/ffmpeg-static/ffmpeg node_modules/ffmpeg-static/ffmpeg.exe 2>/dev/null; true
 
 # yt-dlp recommends the nightly channel for site breakages. Install its portable
