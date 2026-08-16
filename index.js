@@ -88,6 +88,7 @@ const PLAYER_CLIENT_CHAINS = [
   // guest-only fallback after the cookie-capable web clients.
   'android_vr',
 ];
+const YTDLP_ATTEMPT_TIMEOUT_MS = 20_000;
 
 if (!TOKEN) {
   console.error('Missing Discord bot token. Set TOKEN in your environment.');
@@ -148,6 +149,34 @@ function getYtdlpBaseOptions(playerClientOverride) {
     opts.extractorArgs[0] += `;po_token=${tokenClient}.gvs+${YTDLP_PO_TOKEN}`;
   }
   return opts;
+}
+
+// youtube-dl-exec exposes the spawned process methods on its returned promise.
+// Kill a stalled extractor so one bad YouTube client cannot leave !play hanging
+// forever with the bot connected but silent.
+async function runYtdlp(url, options, timeoutMs = YTDLP_ATTEMPT_TIMEOUT_MS) {
+  const task = youtubedl(url, options);
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      try { task.kill('SIGKILL'); } catch {}
+      reject(new Error(`yt-dlp timed out after ${Math.round(timeoutMs / 1000)} seconds`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([task, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function getPlayerClientChains() {
+  // android_vr does not support account cookies. Trying it with an authenticated
+  // cookies file only adds a slow, guaranteed-to-fail fallback.
+  return tempCookiesPath
+    ? PLAYER_CLIENT_CHAINS.filter((clientName) => clientName !== 'android_vr')
+    : PLAYER_CLIENT_CHAINS;
 }
 
 async function setVoiceChannelStatus(channelId, status) {
@@ -650,9 +679,9 @@ async function appendAndMaybePlay(guildId, serverQueue, song, statusMsg) {
   serverQueue.songs.push(song);
 
   if (shouldStartNow) {
-    // Delete the status; playSong will send the Now Playing embed
-    try { await statusMsg.delete(); } catch {}
+    await statusMsg.edit('⏳ **Preparing audio stream...**').catch(() => {});
     await playSong(guildId, song);
+    try { await statusMsg.delete(); } catch {}
     return;
   }
 
@@ -772,9 +801,11 @@ async function bootstrapAndPlay(message, voiceChannel, song, statusMsg) {
     return;
   }
 
-  // Song was already pushed before the connection await (see above).
-  try { await statusMsg.delete(); } catch {}
+  // Song was already pushed before the connection await (see above). Keep the
+  // status visible while yt-dlp prepares the stream; playSong posts the card.
+  await statusMsg.edit('⏳ **Preparing audio stream...**').catch(() => {});
   await playSong(guildId, song);
+  try { await statusMsg.delete(); } catch {}
 }
 
 function createSongId() {
@@ -814,11 +845,12 @@ function normalizeMediaUrl(input) {
 
 async function getSongFromUrl(input) {
   const url = normalizeMediaUrl(input);
+  const clientChains = getPlayerClientChains();
 
-  for (let i = 0; i < PLAYER_CLIENT_CHAINS.length; i++) {
+  for (let i = 0; i < clientChains.length; i++) {
     try {
-      const videoInfo = await youtubedl(url, {
-        ...getYtdlpBaseOptions(PLAYER_CLIENT_CHAINS[i]),
+      const videoInfo = await runYtdlp(url, {
+        ...getYtdlpBaseOptions(clientChains[i]),
         dumpSingleJson: true,
         skipDownload: true,
       });
@@ -834,8 +866,8 @@ async function getSongFromUrl(input) {
       const errMsg = (err?.stderr || err?.message || '').toLowerCase();
       const isBlockedError = errMsg.includes('sign in') || errMsg.includes('not a bot') || errMsg.includes('403');
 
-      if (isBlockedError && i < PLAYER_CLIENT_CHAINS.length - 1) {
-        console.warn(`Client chain "${PLAYER_CLIENT_CHAINS[i]}" blocked for ${url}, trying next...`);
+      if (isBlockedError && i < clientChains.length - 1) {
+        console.warn(`Client chain "${clientChains[i]}" blocked for ${url}, trying next...`);
         continue;
       }
 
@@ -930,7 +962,7 @@ async function playSong(guildId, song, seekSeconds = 0) {
     cleanupCurrentProcess(serverQueue);
     serverQueue.currentSongId = song.id;
     serverQueue.advancingSongId = null;
-    serverQueue.playbackStartedAt = Date.now() - (seekSeconds * 1000);
+    serverQueue.playbackStartedAt = null;
     serverQueue.pausedAt = null;
     serverQueue.seekOffset = seekSeconds;
 
@@ -1008,6 +1040,9 @@ async function playSong(guildId, song, seekSeconds = 0) {
     const vol = serverQueue.targetVolume ?? (getDefaultVolume(guildId) / 100);
     serverQueue.targetVolume = vol;
     resource.volume?.setVolume(vol);
+    // Start the visible clock when audio is handed to Discord, not while yt-dlp
+    // is still resolving the stream URL.
+    serverQueue.playbackStartedAt = Date.now() - (seekSeconds * 1000);
     serverQueue.player.play(resource);
     // Track the resource we just started. On Idle/error we compare the resource
     // that ENDED against this one (by token in its metadata): a killed/superseded
@@ -1079,6 +1114,10 @@ function getPublicPlayErrorMessage(reason) {
     return 'I could not get a playable audio stream for that track.';
   }
 
+  if (message.includes('timed out')) {
+    return 'YouTube took too long to prepare the audio stream. Please try again.';
+  }
+
   if (message.includes('ffmpeg')) {
     return 'The audio stream failed while starting.';
   }
@@ -1087,23 +1126,26 @@ function getPublicPlayErrorMessage(reason) {
 }
 
 async function getAudioUrl(url) {
-  for (let i = 0; i < PLAYER_CLIENT_CHAINS.length; i++) {
+  const clientChains = getPlayerClientChains();
+
+  for (let i = 0; i < clientChains.length; i++) {
     try {
-      const info = await youtubedl(url, {
-        ...getYtdlpBaseOptions(PLAYER_CLIENT_CHAINS[i]),
+      const info = await runYtdlp(url, {
+        ...getYtdlpBaseOptions(clientChains[i]),
         dumpSingleJson: true,
       });
 
       const audioUrl = getBestAudioUrl(info);
       if (audioUrl) return audioUrl;
 
-      console.warn(`No audio URL from client chain "${PLAYER_CLIENT_CHAINS[i]}" for ${url}`);
+      console.warn(`No audio URL from client chain "${clientChains[i]}" for ${url}`);
     } catch (err) {
       const errMsg = (err?.stderr || err?.message || '').toLowerCase();
       const isBlockedError = errMsg.includes('sign in') || errMsg.includes('not a bot') || errMsg.includes('403');
 
-      if (isBlockedError && i < PLAYER_CLIENT_CHAINS.length - 1) {
-        console.warn(`Audio extraction blocked with "${PLAYER_CLIENT_CHAINS[i]}", trying next client chain...`);
+      if (i < clientChains.length - 1) {
+        const reason = isBlockedError ? 'blocked' : 'failed';
+        console.warn(`Audio extraction ${reason} with "${clientChains[i]}", trying next client chain...`);
         continue;
       }
 
@@ -1562,8 +1604,9 @@ function stopNowPlayingTicker(serverQueue) {
 }
 
 function buildNowPlayingEmbed(song, serverQueue) {
-  const elapsed = getElapsedSeconds(serverQueue);
   const duration = song.duration || 0;
+  const rawElapsed = getElapsedSeconds(serverQueue);
+  const elapsed = duration ? Math.min(rawElapsed, duration) : rawElapsed;
   const bar = buildProgressBar(elapsed, duration);
   const timeLine = duration
     ? `\`${formatTime(elapsed)} ${bar} ${formatTime(duration)}\``
@@ -1837,13 +1880,13 @@ async function playlistCommand(message, serverQueue, args) {
   const status = await message.reply('📥 Loading playlist...');
   let info;
   try {
-    info = await youtubedl(url, {
+    info = await runYtdlp(url, {
       ...getYtdlpBaseOptions(),
       dumpSingleJson: true,
       flatPlaylist: true,
       skipDownload: true,
       noPlaylist: false,
-    });
+    }, 45_000);
   } catch (err) {
     console.error('Playlist load failed:', err.message || err);
     return status.edit('❌ Could not load that playlist.');
