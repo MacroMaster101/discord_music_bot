@@ -2,6 +2,7 @@ FROM node:22-slim
 
 # Install runtime tools for Discord voice playback and yt-dlp.
 RUN apt-get update && apt-get install -y \
+    build-essential \
     ca-certificates \
     ffmpeg \
     python3 \
@@ -26,7 +27,7 @@ COPY package*.json ./
 # since we already have ffmpeg from apt-get above
 RUN npm ci --omit=dev \
     && node -e "require('@discordjs/opus')" \
-    && rm -rf node_modules/ffmpeg-static/ffmpeg node_modules/ffmpeg-static/ffmpeg.exe 2>/dev/null; true
+    && rm -rf node_modules/ffmpeg-static/ffmpeg node_modules/ffmpeg-static/ffmpeg.exe
 
 # yt-dlp recommends the nightly channel for site breakages. Install its portable
 # binary and replace the older binary bundled by youtube-dl-exec.
@@ -42,7 +43,9 @@ RUN mkdir -p /etc/yt-dlp/plugins \
     && wget -q "https://github.com/Brainicism/bgutil-ytdlp-pot-provider/releases/download/${BGUTIL_VERSION}/bgutil-ytdlp-pot-provider.zip" \
         -O /etc/yt-dlp/plugins/bgutil-ytdlp-pot-provider.zip \
     && unzip -l /etc/yt-dlp/plugins/bgutil-ytdlp-pot-provider.zip | grep -q 'yt_dlp_plugins/' \
-    && apt-get purge -y unzip && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+    && apt-get purge -y build-essential unzip \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy application files
 COPY . .
