@@ -10,7 +10,9 @@ services:
       bgutil-provider:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      # Keep 0.0.0.0 only during the tunnel migration. Production should set
+      # DASHBOARD_BIND_ADDRESS=127.0.0.1 and use Cloudflare Tunnel.
+      - "${DASHBOARD_BIND_ADDRESS:-0.0.0.0}:${PORT:-8080}:${PORT:-8080}"
     environment:
       YTDLP_COOKIES_PATH: /app/data/cookies.txt
     volumes:
@@ -31,3 +33,18 @@ services:
       timeout: 5s
       retries: 12
       start_period: 10s
+
+  cloudflared:
+    image: cloudflare/cloudflared:${CLOUDFLARED_VERSION:-latest}
+    container_name: j4fn-cloudflared
+    profiles:
+      - tunnel
+    restart: unless-stopped
+    depends_on:
+      bot:
+        condition: service_started
+    # The route is managed in Cloudflare: music.j4fn.site -> http://bot:8080.
+    # TUNNEL_TOKEN stays in the server .env file and is never committed.
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}

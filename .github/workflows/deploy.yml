@@ -14,11 +14,12 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         env:
           YTDLP_COOKIES_BASE64: ${{ secrets.YTDLP_COOKIES_BASE64 }}
+          CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: YTDLP_COOKIES_BASE64
+          envs: YTDLP_COOKIES_BASE64,CLOUDFLARE_TUNNEL_TOKEN
           command_timeout: 15m
           script_stop: true
           script: |
@@ -34,13 +35,26 @@ jobs:
               attempt=$((attempt + 1))
               sleep 5
             done
+            test -f .env
+            chmod 600 .env
             install -d -m 700 data
             if [ -n "${YTDLP_COOKIES_BASE64:-}" ]; then
               printf '%s' "$YTDLP_COOKIES_BASE64" | base64 --decode > data/cookies.txt
               chmod 600 data/cookies.txt
             fi
-            docker compose up -d --build
+            if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
+              env_tmp="$(mktemp)"
+              grep -v -E '^(TUNNEL_TOKEN|COMPOSE_PROFILES|DASHBOARD_BIND_ADDRESS)=' .env > "$env_tmp" || true
+              printf '\nTUNNEL_TOKEN=%s\nCOMPOSE_PROFILES=tunnel\nDASHBOARD_BIND_ADDRESS=127.0.0.1\n' "$CLOUDFLARE_TUNNEL_TOKEN" >> "$env_tmp"
+              chmod 600 "$env_tmp"
+              mv "$env_tmp" .env
+            fi
+            docker compose up -d --build --remove-orphans
             sleep 5
             docker compose ps
             docker compose logs --tail=50 bot
             test "$(docker inspect --format '{{.State.Running}}' discord-music-bot)" = "true"
+            if grep -q '^COMPOSE_PROFILES=.*tunnel' .env; then
+              docker compose logs --tail=30 cloudflared
+              test "$(docker inspect --format '{{.State.Running}}' j4fn-cloudflared)" = "true"
+            fi

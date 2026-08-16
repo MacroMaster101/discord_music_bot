@@ -1,6 +1,6 @@
 # 🎵 J4FN MUSIC — Discord Music Bot 🎧
 
-A premium, self-hostable Discord music player featuring a glassmorphic web dashboard with full remote playback controls, robust anti-bot bypass (deno + automatic PO-token provider), interactive message buttons, and automatic voice channel management. 🎧✨
+A premium, self-hostable Discord music player featuring a glassmorphic web dashboard with full remote playback controls, resilient yt-dlp extraction (Node + automatic PO-token provider), interactive message buttons, and automatic voice channel management. 🎧✨
 
 ![Node.js](https://img.shields.io/badge/Node.js-22.12+-339933?logo=node.js&logoColor=white)
 ![discord.js](https://img.shields.io/badge/discord.js-14.x-5865F2?logo=discord&logoColor=white)
@@ -18,7 +18,7 @@ A premium, self-hostable Discord music player featuring a glassmorphic web dashb
 - 📂 **Playlist Handler** — Queue full YouTube playlists via `!playlist`.
 - 🎤 **Lyrics Lookup** — `!lyrics` fetches lyrics for the current song.
 - 🎛️ **In-Chat Controls** — Tap message buttons to pause, skip, seek, adjust volume, and view the queue.
-- 🤖 **Anti-Bot Bypass** — deno JS runtime + an automatic **PO-token provider** sidecar, player-client fallback chains, and optional YouTube cookies, to get past "confirm you're not a bot" blocks on datacenter IPs.
+- 🤖 **Playback Resilience** — Node JS runtime + an automatic **PO-token provider** sidecar, player-client fallback chains, and optional YouTube cookies for restricted playback environments.
 - ⏱️ **Auto Voice Manager** — Leaves empty rooms and pauses playback when alone.
 
 ---
@@ -29,7 +29,7 @@ A premium, self-hostable Discord music player featuring a glassmorphic web dashb
 | :--- | :--- | :--- |
 | 🎙️ **Voice** | `@discordjs/voice` | Low-latency Opus audio streaming over UDP |
 | 🎬 **Media Extractor** | `yt-dlp` (via `youtube-dl-exec`) | YouTube extraction with anti-bot bypass |
-| 🧩 **JS Runtime** | `deno` | Required by modern yt-dlp YouTube extraction |
+| 🧩 **JS Runtime** | Node.js | Used by modern yt-dlp YouTube extraction |
 | 🔐 **PO Tokens** | `bgutil-ytdlp-pot-provider` (sidecar) | Auto-mints Proof-of-Origin tokens — no manual refresh |
 | 🔍 **Search** | `yt-search` | YouTube search-by-keyword |
 | 🎚️ **Transcoder** | system `ffmpeg` + `opusscript` | Audio transcoding + Opus encoding |
@@ -76,6 +76,9 @@ Copy `.env.example` to `.env` and fill in:
 | `TOKEN` | ✅ | Discord bot token. |
 | `ADMIN_TOKEN` | recommended | Protects dashboard editing **and all web playback controls**. Pick a long random string. |
 | `PORT` | optional | Dashboard HTTP port (default `8080`). |
+| `DASHBOARD_BIND_ADDRESS` | optional | Host bind address for port `8080`; use `127.0.0.1` with Cloudflare Tunnel. |
+| `COMPOSE_PROFILES` | tunnel only | Set to `tunnel` to start the `cloudflared` sidecar. |
+| `TUNNEL_TOKEN` | tunnel only | Raw token for a remotely-managed Cloudflare Tunnel. Never commit it. |
 | `BGUTIL_BASE_URL` | optional | PO-token provider URL (defaults to the compose sidecar `http://bgutil-provider:4416`). |
 | `YTDLP_COOKIES_PATH` / `YTDLP_COOKIES_BASE64` | optional | YouTube cookies (path or base64) to unlock login-restricted videos. |
 
@@ -83,7 +86,7 @@ Copy `.env.example` to `.env` and fill in:
 
 ## 🐳 Deployment — Docker Compose (Recommended)
 
-The stack runs **two containers**: the bot and the `bgutil-provider` PO-token sidecar.
+The base stack runs **two containers**: the bot and the `bgutil-provider` PO-token sidecar. Enabling the `tunnel` profile adds a `cloudflared` sidecar.
 
 ### 1. On your server (e.g. an Ubuntu EC2 instance)
 
@@ -104,11 +107,17 @@ docker compose up -d --build
 docker compose logs -f      # confirm "is online!"
 ```
 
-The dashboard is served on the port in `docker-compose.yml` (default `8080`). Reach it at `http://<your-server-ip>:<port>`.
+The dashboard is served on port `8080`. Direct IP access should be used only during initial setup; the production setup below publishes it through Cloudflare Tunnel.
 
-### 2. Open the dashboard port
+### 2. Publish the dashboard securely with Cloudflare Tunnel
 
-In your cloud firewall / AWS security group, add an inbound **Custom TCP** rule for the dashboard port (default **8080**). Restrict the source to your IP where possible — the dashboard's control actions are token-gated, but limiting exposure is good practice.
+1. Add the domain to Cloudflare and wait until its status is **Active**.
+2. In Cloudflare, go to **Networking → Tunnels**, create a remotely-managed tunnel named `j4fn-music-dashboard`, and copy only its raw token.
+3. Add a published-application route with hostname `music.j4fn.site` and service URL `http://bot:8080`.
+4. Protect the hostname with a Cloudflare Access self-hosted application. Use an **Allow** policy containing only the exact administrator email addresses; do not use `Everyone` or unrestricted One-time PIN access.
+5. Add the raw token as the GitHub Actions secret `CLOUDFLARE_TUNNEL_TOKEN`, then deploy `main`.
+
+The workflow stores the token only in the EC2 `.env`, enables the `tunnel` Compose profile, binds host port `8080` to localhost, and starts `cloudflared`. After `https://music.j4fn.site` is verified, remove the AWS security-group inbound rule for TCP `8080`. Keep `ADMIN_TOKEN` enabled as defense in depth.
 
 ### 3. (Optional) GitHub Actions auto-deploy
 
@@ -117,6 +126,7 @@ In your cloud firewall / AWS security group, add an inbound **Custom TCP** rule 
 - `EC2_HOST` — your server's public IP/DNS
 - `EC2_USERNAME` — e.g. `ubuntu`
 - `EC2_SSH_KEY` — the full contents of your private key (`.pem`)
+- `CLOUDFLARE_TUNNEL_TOKEN` — raw token copied from the tunnel installation command
 
 ---
 
@@ -128,15 +138,15 @@ cp .env.example .env     # add TOKEN (+ ADMIN_TOKEN)
 npm start
 ```
 
-> Local runs without the Docker image won't have the deno + bgutil sidecar, so YouTube extraction may hit bot-checks. Docker Compose is the supported path.
+> Local runs without the Docker image won't have the configured Node runtime + bgutil sidecar, so YouTube extraction may hit bot-checks. Docker Compose is the supported path.
 
 ---
 
-## 🍪 Anti-Bot, deno & PO Tokens 🛡️
+## 🍪 Playback Authentication & PO Tokens 🛡️
 
 Modern `yt-dlp` needs a JavaScript runtime and, on datacenter IPs, Proof-of-Origin (PO) tokens to satisfy YouTube's "confirm you're not a bot" checks. The Docker image handles both automatically:
 
-- **deno** is installed into the image as the JS runtime.
+- **Node.js** is used as the JS runtime.
 - The **`bgutil-provider`** sidecar mints PO tokens on demand; the bot passes its URL to yt-dlp via `youtubepot-bgutilhttp:base_url`. No manual token refresh required.
 
 For login-restricted videos you can additionally supply YouTube cookies:
@@ -156,8 +166,8 @@ discord_music_bot/
 ├── server.js             # Dashboard HTTP server: telemetry + control API + UI
 ├── settings.js           # Per-guild + global settings manager (JSON-backed)
 ├── package.json          # Dependencies
-├── Dockerfile            # Bot image: ffmpeg, deno, yt-dlp, bgutil plugin
-├── docker-compose.yml    # bot + bgutil-provider sidecar, ports & volumes
+├── Dockerfile            # Bot image: ffmpeg, yt-dlp, bgutil plugin
+├── docker-compose.yml    # bot + bgutil-provider + optional tunnel sidecar
 ├── .env.example          # Environment variable template
 ├── .github/workflows/    # CI/CD deploy workflow
 ├── .gitignore
