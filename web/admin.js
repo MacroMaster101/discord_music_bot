@@ -228,6 +228,13 @@
     $('admin-token').value = '';
     setLocked(true, 'Console locked.');
   });
+
+  // A bare /cdn-cgi/access/logout ends the session but leaves the browser on
+  // Cloudflare's own "logged out" page. returnTo sends it back here instead, and
+  // is built from the current origin so it follows whichever host served the page.
+  document.querySelectorAll('a[href="/cdn-cgi/access/logout"]').forEach((link) => {
+    link.href = `/cdn-cgi/access/logout?returnTo=${encodeURIComponent(`${window.location.origin}/`)}`;
+  });
   $('refresh-admin').addEventListener('click', refreshAdmin);
   $('setting-volume').addEventListener('input', () => { $('volume-output').textContent = `${$('setting-volume').value}%`; });
   $('presence-mode').addEventListener('change', updatePresenceFields);
