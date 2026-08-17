@@ -26,8 +26,15 @@
       </section>
 
       <section class="unlock-card" id="unlock-card">
-        <div><span class="lock-icon">⌁</span><div><strong>Cloudflare session unavailable</strong><p>Normally Access signs you in automatically. Use the emergency token only for local or recovery access.</p></div></div>
-        <form id="unlock-form"><label class="sr-only" for="admin-token">Emergency admin token</label><input id="admin-token" type="password" autocomplete="current-password" placeholder="Emergency ADMIN_TOKEN" required><button class="button button-primary" type="submit">Unlock</button></form>
+        <div><span class="lock-icon">⌁</span><div><strong>Admin sign in</strong><p>Authenticate with your Cloudflare Zero Trust identity, or unlock with the admin token.</p></div></div>
+        <div class="unlock-options">
+          <!-- /admin/ is covered by the Cloudflare Access application, so requesting it
+               makes Cloudflare issue the signed login redirect itself. A hand-built
+               /cdn-cgi/access/login/... URL misses the required kid+meta parameters. -->
+          <a class="button button-primary" href="/admin/">Sign in with Cloudflare Access</a>
+          <span class="unlock-or">or enter admin token</span>
+          <form id="unlock-form"><label class="sr-only" for="admin-token">Admin token</label><input id="admin-token" type="password" autocomplete="current-password" placeholder="Admin token" required><button class="button button-quiet" type="submit">Unlock</button></form>
+        </div>
         <p class="form-message" id="unlock-message" role="status"></p>
       </section>
 

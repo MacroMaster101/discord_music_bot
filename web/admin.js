@@ -355,5 +355,5 @@
     setLocked(false);
     await Promise.all([loadSettings(), loadPresence()]);
     state.refreshTimer = setInterval(refreshAdmin, 6000);
-  }).catch(() => setLocked(true, 'Sign in with Cloudflare Access or use the emergency admin token.'));
+  }).catch(() => setLocked(true, 'Choose Cloudflare Access or enter the admin token to continue.'));
 })();
