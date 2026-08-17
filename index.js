@@ -205,7 +205,7 @@ const client = new Client({
 const queue = new Map();
 const inflightPlay = new Set(); // guildIds currently bootstrapping a queue
 
-client.once('ready', async () => {
+client.once('clientReady', async () => {
   const machineId = process.env.FLY_MACHINE_ID || 'local';
   console.log(`🎵 ${client.user.tag} is online! [machine=${machineId}]`);
   console.log(`👉 If you see this log from MORE than one machine, run: fly scale count 1`);
@@ -218,6 +218,7 @@ client.once('ready', async () => {
       getBotStats, getQueueProgress, seek,
       pauseResumeCore, skipCore, stopCore, restartCore, volumeCore,
       loopCore, shuffleCore, removeCore, moveCore, clearCore, addCore,
+      getPresenceConfig, setPresenceCore,
     });
   } catch (err) {
     console.error('Could not start Web Dashboard Server:', err);
@@ -1279,6 +1280,21 @@ function updatePresence(inVoice, songTitle) {
 
 function applyPresence() {
   if (!client.user) return;
+
+  const presence = getPresenceConfig();
+  if (presence.mode === 'custom') {
+    const activityTypes = {
+      playing: ActivityType.Playing,
+      listening: ActivityType.Listening,
+      watching: ActivityType.Watching,
+      competing: ActivityType.Competing,
+    };
+    client.user.setPresence({
+      activities: [{ name: presence.activityText, type: activityTypes[presence.activityType] }],
+      status: presence.status,
+    });
+    return;
+  }
   
   const activities = getPresenceActivities();
   const activity = activities[presenceIndex % activities.length];
@@ -1475,6 +1491,27 @@ function getElapsedSeconds(serverQueue) {
   if (!serverQueue?.playbackStartedAt) return 0;
   const clock = serverQueue.pausedAt || Date.now();
   return Math.floor((clock - serverQueue.playbackStartedAt) / 1000);
+}
+
+function getPresenceConfig() {
+  return {
+    mode: settings.get(null, 'presenceMode'),
+    status: settings.get(null, 'presenceStatus'),
+    activityType: settings.get(null, 'presenceActivityType'),
+    activityText: settings.get(null, 'presenceActivityText'),
+  };
+}
+
+function setPresenceCore(patch = {}) {
+  settings.setGlobal({
+    presenceMode: patch.mode,
+    presenceStatus: patch.status,
+    presenceActivityType: patch.activityType,
+    presenceActivityText: patch.activityText,
+  });
+  presenceIndex = 0;
+  applyPresence();
+  return { ok: true, ...getPresenceConfig() };
 }
 
 function pausePlayer(serverQueue) {

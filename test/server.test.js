@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const { after, before, test } = require('node:test');
 
 process.env.ADMIN_TOKEN = 'test-admin-token';
-const { buildPublicPayload, createDashboardServer, isAdminRequest } = require('../server');
+const { buildDiscordInviteUrl, buildPublicPayload, createDashboardServer, isAdminRequest } = require('../server');
 
 class MockCollection extends Map {
   reduce(callback, initial) {
@@ -20,6 +20,7 @@ const guild = {
 };
 const client = {
   user: {
+    id: '1446822006619246623',
     username: 'J4FN MUSIC',
     tag: 'J4FN MUSIC#3509',
     displayAvatarURL: () => 'https://cdn.example.test/bot.png',
@@ -35,6 +36,9 @@ const serverQueue = {
   loop: null,
 };
 const queue = new Map([[guild.id, serverQueue]]);
+let presenceConfig = {
+  mode: 'automatic', status: 'online', activityType: 'competing', activityText: 'The Ultimate DJ Battle',
+};
 const hooks = {
   getBotStats: () => ({
     totalSongsPlayed: 7,
@@ -47,6 +51,11 @@ const hooks = {
     durationText: '3:00',
     upcoming: [{ title: 'Private Queue Item' }],
   }),
+  getPresenceConfig: () => ({ ...presenceConfig }),
+  setPresenceCore: (patch) => {
+    presenceConfig = { ...presenceConfig, ...patch };
+    return { ok: true, ...presenceConfig };
+  },
 };
 
 test('public payload contains useful aggregates without private guild data', () => {
@@ -99,7 +108,10 @@ after(async () => {
 test('public page and API are reachable without an admin token', async () => {
   const page = await fetch(`${baseUrl}/`);
   assert.equal(page.status, 200);
-  assert.match(await page.text(), /Live status/);
+  const pageHtml = await page.text();
+  assert.match(pageHtml, /Live status/);
+  assert.match(pageHtml, /Add J4FN Music/);
+  assert.match(pageHtml, /og:description/);
 
   const response = await fetch(`${baseUrl}/api/public/status`);
   assert.equal(response.status, 200);
@@ -120,6 +132,15 @@ test('public page and API are reachable without an admin token', async () => {
   assert.equal(favicon.status, 200);
   assert.match(favicon.headers.get('content-type'), /image\/png/);
   assert.ok((await favicon.arrayBuffer()).byteLength > 10_000);
+});
+
+test('public invite route redirects to Discord with least-privilege bot permissions', async () => {
+  const expected = buildDiscordInviteUrl('1446822006619246623');
+  assert.equal(expected, 'https://discord.com/oauth2/authorize?client_id=1446822006619246623&permissions=281475013495808&integration_type=0&scope=bot+applications.commands');
+
+  const response = await fetch(`${baseUrl}/invite`, { redirect: 'manual' });
+  assert.equal(response.status, 302);
+  assert.equal(response.headers.get('location'), expected);
 });
 
 test('admin APIs reject anonymous requests and allow the configured token', async () => {
@@ -160,4 +181,23 @@ test('admin redirect and malformed control requests fail safely', async () => {
   });
   assert.equal(malformed.status, 400);
   assert.deepEqual(await malformed.json(), { error: 'Invalid JSON.' });
+});
+
+test('admin can read and update the Discord bot presence', async () => {
+  const headers = { Authorization: 'Bearer test-admin-token' };
+  const current = await fetch(`${baseUrl}/api/admin/presence`, { headers });
+  assert.equal(current.status, 200);
+  assert.equal((await current.json()).mode, 'automatic');
+
+  const updated = await fetch(`${baseUrl}/api/admin/presence`, {
+    method: 'PUT',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      mode: 'custom', status: 'idle', activityType: 'listening', activityText: 'your requests',
+    }),
+  });
+  assert.equal(updated.status, 200);
+  assert.deepEqual(await updated.json(), {
+    ok: true, mode: 'custom', status: 'idle', activityType: 'listening', activityText: 'your requests',
+  });
 });

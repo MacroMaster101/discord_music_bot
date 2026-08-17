@@ -11,6 +11,16 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
 const VM_MEMORY_MB = Number(process.env.VM_MEMORY_MB || 2048);
 const HISTORY_INTERVAL_MS = 30_000;
 const HISTORY_LIMIT = 240;
+const DISCORD_INVITE_PERMISSIONS = [
+  10n, // View Channels
+  11n, // Send Messages
+  14n, // Embed Links
+  16n, // Read Message History
+  20n, // Connect
+  21n, // Speak
+  25n, // Use Voice Activity
+  48n, // Set Voice Channel Status
+].reduce((permissions, bit) => permissions | (1n << bit), 0n);
 
 const STATIC_FILES = new Map([
   ['/assets/app.css', ['app.css', 'text/css; charset=utf-8']],
@@ -52,6 +62,18 @@ function sendFile(res, fileName, contentType, cacheControl = 'no-store') {
     res.writeHead(200, securityHeaders(contentType, cacheControl));
     res.end(body);
   });
+}
+
+function buildDiscordInviteUrl(applicationId) {
+  const clientId = String(applicationId || '').trim();
+  if (!/^\d+$/.test(clientId)) return null;
+
+  const invite = new URL('https://discord.com/oauth2/authorize');
+  invite.searchParams.set('client_id', clientId);
+  invite.searchParams.set('permissions', DISCORD_INVITE_PERMISSIONS.toString());
+  invite.searchParams.set('integration_type', '0');
+  invite.searchParams.set('scope', 'bot applications.commands');
+  return invite.toString();
 }
 
 function safeEqual(left, right) {
@@ -264,6 +286,12 @@ function createDashboardServer(client, queue, hooks = {}) {
       if (req.method === 'GET' && pathname === '/robots.txt') {
         return sendText(res, 200, 'User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/admin\n');
       }
+      if (req.method === 'GET' && pathname === '/invite') {
+        const inviteUrl = buildDiscordInviteUrl(client?.application?.id || client?.user?.id);
+        if (!inviteUrl) return sendText(res, 503, 'The Discord invite is unavailable while the bot is starting.');
+        res.writeHead(302, { Location: inviteUrl, 'Cache-Control': 'no-store' });
+        return res.end();
+      }
       if (req.method === 'GET' && pathname === '/admin') {
         res.writeHead(308, { Location: '/admin/' });
         return res.end();
@@ -299,6 +327,19 @@ function createDashboardServer(client, queue, hooks = {}) {
         }
         if (req.method === 'GET' && pathname === '/api/admin/guilds') {
           return sendJson(res, 200, { guilds: listGuilds(client) });
+        }
+        if (pathname === '/api/admin/presence') {
+          if (req.method === 'GET') {
+            return sendJson(res, 200, hooks.getPresenceConfig?.() || {
+              mode: 'automatic', status: 'online', activityType: 'competing', activityText: '',
+            });
+          }
+          if (req.method === 'PUT') {
+            const result = hooks.setPresenceCore?.(await readJson(req));
+            if (!result) return sendJson(res, 503, { error: 'Presence controls are unavailable.' });
+            return sendJson(res, result.ok ? 200 : 400, result);
+          }
+          return sendJson(res, 405, { error: 'Method not allowed.' });
         }
         if (pathname === '/api/admin/settings') {
           const guildId = url.searchParams.get('guildId') || null;
@@ -359,6 +400,7 @@ function startDashboardServer(client, queue, hooks = {}) {
 }
 
 module.exports = {
+  buildDiscordInviteUrl,
   buildPublicPayload,
   createDashboardServer,
   isAdminRequest,

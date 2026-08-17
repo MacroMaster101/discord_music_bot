@@ -11,8 +11,8 @@ A premium, self-hostable Discord music player featuring a glassmorphic web dashb
 
 ## ✨ Key Features 🚀
 
-- 📊 **Public Status Dashboard** — A public-safe status page with bot health, aggregate reach, active track titles, live progress, and rolling activity graphs. It never publishes Discord server IDs/names, voice channels, users, queues, logs, or system telemetry.
-- 🔐 **Protected Admin Console** — Cloudflare Access protects playback controls, queues, command logs, runtime telemetry, and global/per-server settings CRUD; a server-side token remains available for local/recovery access.
+- 📊 **Public Status Dashboard** — A public-safe status page with bot health, aggregate reach, active track titles, live progress, rolling activity graphs, and a least-privilege Discord install flow at `/invite`. It never publishes Discord server IDs/names, voice channels, users, queues, logs, or system telemetry.
+- 🔐 **Protected Admin Console** — Cloudflare Access protects playback controls, queues, command logs, runtime telemetry, persistent Discord presence editing, and global/per-server settings CRUD; a server-side token remains available for local/recovery access.
 - 🎛️ **Full Web Remote** — Drive the bot from the browser: play/pause, restart, skip, stop, ±10s, **click-to-seek**, loop, shuffle, volume, queue management (reorder/remove/clear), and add songs by URL or search.
 - 🎵 **Advanced Playback** — Play via search query or direct URL (`youtube.com`, `youtu.be`, `/shorts/`, `/live/`).
 - 🔍 **Interactive Search** — `!search` lets you pick from the top 5 YouTube results with Discord buttons.
@@ -136,8 +136,9 @@ The workflow stores the token only in the EC2 `.env`, enables the `tunnel` Compo
 | `/api/public/status` | Public | Public-safe current snapshot |
 | `/api/public/history` | Public | In-memory aggregate chart history |
 | `/healthz` | Public/monitor | Minimal bot readiness result |
+| `/invite` | Public | Discord server-install redirect with the bot's required permissions |
 | `/admin/` | Cloudflare Access admins | Admin user interface |
-| `/api/admin/*` | Cloudflare Access admin or recovery `ADMIN_TOKEN` | Guilds, controls, queues, logs, telemetry, and settings CRUD |
+| `/api/admin/*` | Cloudflare Access admin or recovery `ADMIN_TOKEN` | Guilds, controls, queues, logs, telemetry, Discord presence, and settings CRUD |
 
 The public payload is covered by an automated privacy regression test. Access-authenticated tunnel requests are recognized from Cloudflare's identity and assertion headers. The optional recovery token is sent as a bearer token and retained only in browser `sessionStorage`, so closing the tab/session clears it. Keep the origin bound to localhost and reachable only through the Tunnel.
 

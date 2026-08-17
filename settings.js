@@ -13,6 +13,10 @@ const DEFAULTS = {
   idleDisconnectSeconds: 10,
   emptyVcDisconnectSeconds: 60,
   autoPauseWhenAlone: true,
+  presenceMode: 'automatic',
+  presenceStatus: 'online',
+  presenceActivityType: 'competing',
+  presenceActivityText: '🏆 The Ultimate DJ Battle',
 };
 
 let state = {
@@ -130,6 +134,19 @@ function sanitize(patch) {
   }
   if (patch.autoPauseWhenAlone !== undefined) {
     out.autoPauseWhenAlone = !!patch.autoPauseWhenAlone;
+  }
+  if (patch.presenceMode !== undefined && ['automatic', 'custom'].includes(patch.presenceMode)) {
+    out.presenceMode = patch.presenceMode;
+  }
+  if (patch.presenceStatus !== undefined && ['online', 'idle', 'dnd', 'invisible'].includes(patch.presenceStatus)) {
+    out.presenceStatus = patch.presenceStatus;
+  }
+  if (patch.presenceActivityType !== undefined && ['playing', 'listening', 'watching', 'competing'].includes(patch.presenceActivityType)) {
+    out.presenceActivityType = patch.presenceActivityType;
+  }
+  if (patch.presenceActivityText !== undefined) {
+    const text = String(patch.presenceActivityText).trim();
+    if (text.length >= 1 && text.length <= 128) out.presenceActivityText = text;
   }
   return out;
 }

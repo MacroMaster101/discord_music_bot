@@ -16,7 +16,7 @@
   <div class="site-shell">
     <nav class="topbar">
       <a class="brand" href="/"><span class="brand-mark"><img src="/assets/favicon.png" alt=""></span><span><strong>J4FN ADMIN</strong><small>Protected operations console</small></span></a>
-      <div class="nav-links"><a href="/">← Public status</a><span class="status-chip waiting" id="admin-status"><i></i><span>LOCKED</span></span></div>
+      <div class="nav-links"><a href="/">← Public status</a><a class="button button-quiet" href="/cdn-cgi/access/logout">Sign out</a><span class="status-chip waiting" id="admin-status"><i></i><span>LOCKED</span></span></div>
     </nav>
 
     <main>
@@ -60,13 +60,25 @@
           </article>
 
           <div class="side-stack">
+            <article class="section">
+              <div class="section-heading"><div><span class="kicker">DISCORD PROFILE</span><h2>Bot presence</h2></div><span class="saved-state" id="presence-state">Ready</span></div>
+              <form id="presence-form" class="settings-form">
+                <div class="field"><label for="presence-mode">Presence mode</label><select id="presence-mode"><option value="automatic">Automatic rotation</option><option value="custom">Custom status</option></select><small>Automatic mode follows playback and rotates presets.</small></div>
+                <div class="form-grid">
+                  <div class="field"><label for="presence-status">Online state</label><select id="presence-status"><option value="online">Online</option><option value="idle">Idle</option><option value="dnd">Do not disturb</option><option value="invisible">Invisible</option></select></div>
+                  <div class="field"><label for="presence-type">Activity type</label><select id="presence-type"><option value="playing">Playing</option><option value="listening">Listening to</option><option value="watching">Watching</option><option value="competing">Competing in</option></select></div>
+                </div>
+                <div class="field"><label for="presence-text">Activity text</label><input id="presence-text" maxlength="128" placeholder="The Ultimate DJ Battle" required></div>
+                <div class="form-actions"><span></span><button class="button button-primary" type="submit">Apply presence</button></div>
+              </form>
+            </article>
             <article class="section"><div class="section-heading"><div><span class="kicker">SYSTEM</span><h2>Runtime</h2></div></div><dl class="runtime-grid"><div><dt>Operating system</dt><dd id="sys-os">—</dd></div><div><dt>Node.js</dt><dd id="sys-node">—</dd></div><div><dt>CPU cores</dt><dd id="sys-cpu">—</dd></div><div><dt>Uptime</dt><dd id="sys-uptime">—</dd></div></dl></article>
             <article class="section"><div class="section-heading"><div><span class="kicker">AUDIT FEED</span><h2>Recent commands</h2></div></div><div id="command-log" class="command-log"><p class="muted">No commands recorded yet.</p></div></article>
           </div>
         </section>
       </div>
     </main>
-    <footer><span class="footer-brand"><img src="/assets/favicon.png" alt="">J4FN MUSIC / ADMIN</span><button class="text-button" id="lock-admin" type="button">Lock console</button></footer>
+    <footer><span class="footer-brand"><img src="/assets/favicon.png" alt="">J4FN MUSIC / ADMIN</span><span class="footer-actions"><button class="text-button" id="lock-admin" type="button">Lock locally</button><a href="/cdn-cgi/access/logout">Sign out of Cloudflare</a></span></footer>
   </div>
   <div class="toast" id="toast" role="status"></div>
 </body>

@@ -3,8 +3,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Live status, now-playing activity, and commands for the J4FN Music Discord bot.">
+  <meta name="description" content="Turn every Discord voice channel into a live stage with J4FN Music—YouTube playback, smart queues, interactive controls, lyrics, and live status.">
   <meta name="theme-color" content="#e51f38">
+  <link rel="canonical" href="https://music.j4fn.site/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="J4FN MUSIC">
+  <meta property="og:title" content="J4FN MUSIC · Every room in rhythm">
+  <meta property="og:description" content="YouTube music, smart queues, interactive controls, lyrics, and live status for your Discord server.">
+  <meta property="og:url" content="https://music.j4fn.site/">
+  <meta property="og:image" content="https://music.j4fn.site/assets/logo.png">
+  <meta property="og:image:alt" content="J4FN Music Discord bot logo">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="J4FN MUSIC · Every room in rhythm">
+  <meta name="twitter:description" content="Add reliable YouTube music, smart queues, and interactive controls to your Discord server.">
+  <meta name="twitter:image" content="https://music.j4fn.site/assets/logo.png">
   <title>J4FN MUSIC · Live</title>
   <link rel="icon" href="/assets/favicon.png" type="image/png" sizes="256x256">
   <link rel="apple-touch-icon" href="/assets/logo.png">
@@ -24,6 +36,7 @@
         <a href="#status">Status</a>
         <a href="#live">Now playing</a>
         <a href="#commands">Commands</a>
+        <a href="#invite">Add bot</a>
         <a class="button button-quiet" href="/admin/">Admin</a>
       </div>
     </nav>
@@ -35,8 +48,8 @@
           <h1>One bot.<br><span>Every room in rhythm.</span></h1>
           <p>Follow J4FN Music in real time—service health, current tracks, activity trends, and the commands that keep the queue moving.</p>
           <div class="hero-actions">
-            <a class="button button-primary" href="#live">See what’s playing</a>
-            <a class="button button-quiet" href="#commands">Browse commands</a>
+            <a class="button button-primary" href="/invite" target="_blank" rel="noopener noreferrer">Add to Discord ↗</a>
+            <a class="button button-quiet" href="#live">See what’s playing</a>
           </div>
         </div>
         <div class="signal-card" aria-label="Live bot status">
@@ -95,10 +108,35 @@
         </div>
       </section>
 
+      <section class="invite-section" id="invite">
+        <div class="invite-copy">
+          <span class="kicker">BRING THE VIBE</span>
+          <h2>Add J4FN Music to your server.</h2>
+          <p>Give every voice channel a polished music setup with YouTube search, playlists, smart queues, lyrics, and controls your members can use right inside Discord.</p>
+          <ul class="invite-benefits" aria-label="Bot features">
+            <li><span>✓</span> Search songs or play direct links</li>
+            <li><span>✓</span> Queue, seek, loop, and shuffle</li>
+            <li><span>✓</span> Interactive playback controls</li>
+            <li><span>✓</span> Live status and progress dashboard</li>
+          </ul>
+          <div class="hero-actions">
+            <a class="button button-primary" href="/invite" target="_blank" rel="noopener noreferrer">Add J4FN Music ↗</a>
+            <a class="button button-quiet" href="#commands">Explore commands</a>
+          </div>
+          <small class="invite-note">Discord will ask you to choose a server where you have Manage Server permission.</small>
+        </div>
+        <div class="invite-visual" aria-hidden="true">
+          <span class="invite-orbit"></span>
+          <img src="/assets/logo.png" alt="">
+          <strong>READY TO PLAY</strong>
+          <span>Safe, least-privilege install</span>
+        </div>
+      </section>
+
       <aside class="privacy-note"><span>◎</span><div><strong>Public by design, private by default.</strong><p>This page publishes aggregate service health and music titles only. Server identities, channels, command logs, settings, and controls stay inside the admin console.</p></div></aside>
     </main>
 
-    <footer><span class="footer-brand"><img src="/assets/favicon.png" alt="">J4FN MUSIC</span><span>Powered by Discord, yt-dlp &amp; Cloudflare Tunnel</span><a href="/admin/">Admin console →</a></footer>
+    <footer><span class="footer-brand"><img src="/assets/favicon.png" alt="">J4FN MUSIC</span><span>Powered by Discord, yt-dlp &amp; Cloudflare Tunnel</span><span class="footer-actions"><a href="/invite" target="_blank" rel="noopener noreferrer">Add bot ↗</a><a href="/admin/">Admin console →</a></span></footer>
   </div>
 </body>
 </html>

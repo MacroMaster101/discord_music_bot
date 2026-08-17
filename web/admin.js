@@ -167,6 +167,29 @@
     } catch (error) { setSettingsState(error.message, true); }
   }
 
+  function setPresenceState(message, error = false) {
+    const element = $('presence-state');
+    element.textContent = message;
+    element.className = `saved-state ${error ? 'error' : 'ok'}`;
+  }
+
+  function updatePresenceFields() {
+    const custom = $('presence-mode').value === 'custom';
+    ['presence-status', 'presence-type', 'presence-text'].forEach((id) => { $(id).disabled = !custom; });
+  }
+
+  async function loadPresence() {
+    try {
+      const data = await api('/api/admin/presence');
+      $('presence-mode').value = data.mode || 'automatic';
+      $('presence-status').value = data.status || 'online';
+      $('presence-type').value = data.activityType || 'competing';
+      $('presence-text').value = data.activityText || 'The Ultimate DJ Battle';
+      updatePresenceFields();
+      setPresenceState(data.mode === 'custom' ? 'Custom active' : 'Automatic');
+    } catch (error) { setPresenceState(error.message, true); }
+  }
+
   function setSettingsState(message, error = false) {
     const element = $('settings-state');
     element.textContent = message;
@@ -192,7 +215,7 @@
       await Promise.all([refreshAdmin(), loadGuilds()]);
       if (!token()) return;
       setLocked(false);
-      await loadSettings();
+      await Promise.all([loadSettings(), loadPresence()]);
       state.refreshTimer = setInterval(refreshAdmin, 6000);
     } catch (error) {
       sessionStorage.removeItem('j4fnAdminToken');
@@ -207,6 +230,25 @@
   });
   $('refresh-admin').addEventListener('click', refreshAdmin);
   $('setting-volume').addEventListener('input', () => { $('volume-output').textContent = `${$('setting-volume').value}%`; });
+  $('presence-mode').addEventListener('change', updatePresenceFields);
+  $('presence-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    setPresenceState('Applying…');
+    try {
+      const result = await api('/api/admin/presence', {
+        method: 'PUT',
+        body: JSON.stringify({
+          mode: $('presence-mode').value,
+          status: $('presence-status').value,
+          activityType: $('presence-type').value,
+          activityText: $('presence-text').value.trim(),
+        }),
+      });
+      setPresenceState(result.mode === 'custom' ? 'Custom active' : 'Automatic');
+      toast(result.mode === 'custom' ? 'Discord presence updated' : 'Automatic presence restored');
+      await loadPresence();
+    } catch (error) { setPresenceState(error.message, true); }
+  });
 
   document.querySelectorAll('.scope-button').forEach((button) => button.addEventListener('click', () => {
     document.querySelectorAll('.scope-button').forEach((item) => item.classList.toggle('active', item === button));
@@ -304,7 +346,7 @@
   if (token()) $('admin-token').value = token();
   Promise.all([refreshAdmin(), loadGuilds()]).then(async () => {
     setLocked(false);
-    await loadSettings();
+    await Promise.all([loadSettings(), loadPresence()]);
     state.refreshTimer = setInterval(refreshAdmin, 6000);
   }).catch(() => setLocked(true, 'Sign in with Cloudflare Access or use the emergency admin token.'));
 })();
