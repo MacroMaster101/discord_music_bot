@@ -211,7 +211,7 @@ function listGuilds(client) {
       id: guild.id,
       name: guild.name,
       memberCount: guild.memberCount || 0,
-      iconURL: guild.iconURL?.({ size: 96 }) || null,
+      iconURL: guild.iconURL?.({ size: 128 }) || null,
     })).sort((a, b) => a.name.localeCompare(b.name))
     : [];
 }
