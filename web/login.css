@@ -1,0 +1,307 @@
+/* Sign-in page for the music console.
+   Self-contained on purpose: the shared app.css is served with a long browser cache,
+   so a deploy that only touched app.css could leave this page unstyled. A dedicated
+   file keeps the sign-in screen's appearance independent of that cache.
+   Inline <style> is not an option here — the server sends style-src 'self'. */
+
+:root {
+  color-scheme: dark;
+  --ink: #f7f4ff;
+  --muted: #9995ad;
+  --faint: #63607a;
+  --base: #07060b;
+  --panel: #100e19;
+  --line: rgba(255, 255, 255, .09);
+  --line-hot: rgba(167, 139, 250, .34);
+  --violet: #8b6dff;
+  --violet-2: #b99cff;
+  --pink: #ff4fb8;
+  --green: #4ee6a8;
+  --red: #ff637d;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  color: var(--ink);
+  background: var(--base);
+}
+
+/* Ambient wash: one violet bloom behind the card, nothing else competing with it. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(58rem 34rem at 50% -12%, rgba(139, 109, 255, .17), transparent 62%),
+    radial-gradient(42rem 26rem at 82% 108%, rgba(255, 79, 184, .10), transparent 66%);
+}
+
+.topbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px;
+}
+
+.brand { display: flex; align-items: center; gap: 11px; text-decoration: none; color: inherit; }
+.brand img { width: 34px; height: 34px; border-radius: 10px; display: block; }
+.brand strong { display: block; font-size: 13px; font-weight: 800; letter-spacing: .01em; }
+.brand small { display: block; color: var(--muted); font-size: 11px; }
+
+.back-link {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 12px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  transition: color .18s, background .18s;
+}
+.back-link:hover { color: var(--ink); background: rgba(255, 255, 255, .04); }
+
+.signin { position: relative; display: grid; place-items: center; padding: 24px; }
+
+.card {
+  width: 100%;
+  max-width: 396px;
+  background: linear-gradient(180deg, rgba(24, 21, 38, .92), rgba(16, 14, 25, .94));
+  border: 1px solid var(--line-hot);
+  border-radius: 22px;
+  box-shadow: 0 34px 90px rgba(0, 0, 0, .55), 0 0 46px rgba(139, 109, 255, .10);
+  overflow: hidden;
+}
+
+/* ---- Signature: the signal meter -------------------------------------------
+   This is the page's status display. It replaces a spinner and an error icon:
+   the bars carry STANDBY / CHECKING / REJECTED / AUTHORIZED, which is the
+   vocabulary of the audio console this page guards. */
+
+.meter {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3px;
+  height: 74px;
+  padding: 0 22px 14px;
+  background:
+    radial-gradient(22rem 7rem at 50% 118%, rgba(139, 109, 255, .20), transparent 70%);
+  border-bottom: 1px solid var(--line);
+}
+
+.meter span {
+  flex: 1;
+  max-width: 7px;
+  height: 100%;
+  border-radius: 2px;
+  transform-origin: bottom;
+  transform: scaleY(.14);
+  background: linear-gradient(180deg, var(--pink), var(--violet));
+  animation: pulse 1.9s ease-in-out infinite;
+  transition: background .3s;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scaleY(.13); }
+  50%      { transform: scaleY(.62); }
+}
+
+/* Staggered delays make the level travel across the meter rather than throb as
+   one block — a wave reads as signal, a throb reads as a loading spinner. */
+.meter span:nth-child(1)  { animation-delay: -1.86s; }
+.meter span:nth-child(2)  { animation-delay: -1.74s; }
+.meter span:nth-child(3)  { animation-delay: -1.62s; }
+.meter span:nth-child(4)  { animation-delay: -1.50s; }
+.meter span:nth-child(5)  { animation-delay: -1.38s; }
+.meter span:nth-child(6)  { animation-delay: -1.26s; }
+.meter span:nth-child(7)  { animation-delay: -1.14s; }
+.meter span:nth-child(8)  { animation-delay: -1.02s; }
+.meter span:nth-child(9)  { animation-delay: -0.90s; }
+.meter span:nth-child(10) { animation-delay: -0.78s; }
+.meter span:nth-child(11) { animation-delay: -0.66s; }
+.meter span:nth-child(12) { animation-delay: -0.54s; }
+.meter span:nth-child(13) { animation-delay: -0.42s; }
+.meter span:nth-child(14) { animation-delay: -0.30s; }
+.meter span:nth-child(15) { animation-delay: -0.18s; }
+.meter span:nth-child(16) { animation-delay: -0.06s; }
+.meter span:nth-child(17) { animation-delay: -1.20s; }
+.meter span:nth-child(18) { animation-delay: -1.44s; }
+.meter span:nth-child(19) { animation-delay: -1.68s; }
+.meter span:nth-child(20) { animation-delay: -1.92s; }
+
+/* Typing lifts the level: the page responds while you work rather than sitting inert. */
+.meter[data-state="typing"] span { animation-duration: 1.05s; }
+
+.meter[data-state="checking"] span { animation-duration: .52s; }
+
+.meter[data-state="rejected"] span {
+  animation: none;
+  transform: scaleY(.07);
+  background: linear-gradient(180deg, var(--red), rgba(255, 99, 125, .45));
+}
+
+.meter[data-state="authorized"] span {
+  animation: none;
+  transform: scaleY(1);
+  background: linear-gradient(180deg, var(--green), rgba(78, 230, 168, .42));
+}
+
+.readout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.readout i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--violet);
+  box-shadow: 0 0 10px var(--violet);
+  transition: background .3s, box-shadow .3s;
+}
+.meter[data-state="rejected"] ~ .readout i { background: var(--red); box-shadow: 0 0 10px var(--red); }
+.meter[data-state="authorized"] ~ .readout i { background: var(--green); box-shadow: 0 0 10px var(--green); }
+
+.card-body { padding: 26px 22px 22px; }
+
+.eyebrow {
+  margin: 0 0 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+h1 {
+  margin: 0 0 7px;
+  font-size: 27px;
+  font-weight: 800;
+  letter-spacing: -.024em;
+}
+
+.lead { margin: 0 0 22px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  text-decoration: none;
+  color: var(--ink);
+  cursor: pointer;
+  transition: transform .16s, box-shadow .18s, background .18s, border-color .18s;
+}
+
+.button-primary {
+  color: #fff;
+  background: linear-gradient(122deg, #6f52ff, #a15cff 54%, #e54fac);
+  box-shadow: 0 12px 30px rgba(123, 82, 255, .28);
+}
+.button-primary:hover { transform: translateY(-1px); box-shadow: 0 17px 36px rgba(123, 82, 255, .36); }
+
+.or {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin: 18px 0 14px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: .17em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+
+form { display: flex; gap: 8px; }
+
+input[type="password"] {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, .34);
+  color: var(--ink);
+  /* The credential is machine-issued, so it is set in the face used for machine data. */
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: .04em;
+  transition: border-color .18s, background .18s;
+}
+input[type="password"]::placeholder { color: var(--faint); letter-spacing: .1em; }
+input[type="password"]:hover { border-color: var(--line-hot); }
+
+.button-quiet { width: auto; padding: 0 20px; background: rgba(255, 255, 255, .05); border-color: var(--line); }
+.button-quiet:hover { border-color: var(--line-hot); background: rgba(139, 109, 255, .12); }
+.button:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+
+.msg { margin: 13px 0 0; min-height: 17px; font-size: 12px; line-height: 1.45; color: var(--red); }
+.msg:empty { margin-top: 0; }
+
+:where(a, button, input):focus-visible {
+  outline: 2px solid var(--violet-2);
+  outline-offset: 2px;
+}
+
+.page-footer {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 18px 24px;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.page-footer img { width: 19px; height: 19px; border-radius: 6px; display: block; }
+
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 420px) {
+  h1 { font-size: 24px; }
+  form { flex-direction: column; }
+  .button-quiet { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Hold the meter at a readable level; colour alone then carries the state. */
+  .meter span { animation: none; transform: scaleY(.4); }
+  .button, .back-link { transition: none; }
+  .button-primary:hover { transform: none; }
+}

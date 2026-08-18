@@ -180,16 +180,6 @@ footer a { text-decoration: none; color: var(--violet-2); }
 .lock-icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; background: rgba(139,109,255,.16); color: var(--violet-2); font-size: 22px; }
 .unlock-card form { display: flex; gap: 8px; min-width: min(100%, 440px); }
 .unlock-card input { flex: 1; min-width: 0; }
-.login-shell { display: flex; justify-content: center; padding: 48px 0; }
-.login-card { width: 100%; max-width: 420px; padding: 32px 28px; text-align: center; background: linear-gradient(120deg, rgba(139,109,255,.12), rgba(255,79,184,.05)); border: 1px solid var(--line-hot); border-radius: 18px; }
-.login-card .lock-icon { margin: 0 auto 14px; }
-.login-card h1 { margin: 0 0 6px; font-size: 20px; }
-.login-lead { margin: 0 0 22px; color: var(--muted); font-size: 12px; }
-.login-primary { width: 100%; }
-.login-card .unlock-or { margin: 16px 0; }
-.login-card form { display: flex; gap: 8px; }
-.login-card input { flex: 1; min-width: 0; }
-.login-card .form-message { margin-top: 12px !important; text-align: left; }
 .unlock-options { flex-direction: column; align-items: stretch; gap: 10px; min-width: min(100%, 320px); }
 .unlock-options form { min-width: 0; }
 .unlock-or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }

@@ -3,45 +3,57 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
   <title>J4FN MUSIC · Sign in</title>
   <link rel="icon" href="/assets/favicon.png" type="image/png">
-  <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/assets/login.css">
   <script src="/assets/login.js" defer></script>
 </head>
-<body class="admin-page">
-  <div class="ambient ambient-one"></div>
-  <div class="site-shell">
-    <nav class="topbar">
-      <a class="brand" href="/"><span class="brand-mark"><img src="/assets/favicon.png" alt=""></span><span><strong>J4FN ADMIN</strong><small>Protected operations console</small></span></a>
-      <div class="nav-links"><a href="/">← Public status</a></div>
-    </nav>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <img src="/assets/favicon.png" alt="">
+      <span><strong>J4FN MUSIC</strong><small>Operations console</small></span>
+    </a>
+    <a class="back-link" href="/">← Public status</a>
+  </header>
 
-    <main>
-      <section class="login-shell">
-        <div class="login-card">
-          <span class="lock-icon">⌁</span>
-          <h1>Admin sign in</h1>
-          <p class="login-lead">Choose how you want to authenticate.</p>
+  <main class="signin">
+    <div class="card">
+      <!-- Signal meter: this is the page's status display, not decoration. It reports
+           standby / checking / rejected / authorized in place of a spinner. -->
+      <div class="meter" id="meter" data-state="standby" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span><span></span>
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+      <p class="readout"><i></i><span id="readout">Standby</span></p>
 
-          <!-- /admin/ is inside the Cloudflare Access application, so simply requesting
-               it makes Cloudflare present its own login and hand the identity to the
-               console. This page stays outside that application so the token option
-               below remains reachable. -->
-          <a class="button button-primary login-primary" href="/admin/">Sign in with Cloudflare Access</a>
+      <div class="card-body">
+        <p class="eyebrow">Restricted</p>
+        <h1>Admin sign in</h1>
+        <p class="lead">Two ways in: your Cloudflare identity, or the admin token.</p>
 
-          <span class="unlock-or">or enter admin token</span>
+        <!-- /admin/ is inside the Cloudflare Access application, so requesting it makes
+             Cloudflare present its own login and hand the identity to the console. This
+             page stays outside that application so the token route below stays reachable. -->
+        <a class="button button-primary" href="/admin/">Sign in with Cloudflare Access</a>
 
-          <form id="login-form" autocomplete="on">
-            <label class="sr-only" for="admin-token">Admin token</label>
-            <input id="admin-token" type="password" autocomplete="current-password" placeholder="Admin token" required>
-            <button class="button button-quiet" type="submit" id="login-submit">Unlock</button>
-          </form>
-          <p class="form-message" id="login-message" role="status"></p>
-        </div>
-      </section>
-    </main>
+        <p class="or">or use the admin token</p>
 
-    <footer><span class="footer-brand"><img src="/assets/favicon.png" alt="">J4FN MUSIC / ADMIN</span></footer>
-  </div>
+        <form id="login-form">
+          <label class="sr-only" for="admin-token">Admin token</label>
+          <input id="admin-token" type="password" autocomplete="current-password" placeholder="Admin token" spellcheck="false" required>
+          <button class="button button-quiet" type="submit" id="login-submit">Unlock</button>
+        </form>
+        <p class="msg" id="login-message" role="status" aria-live="polite"></p>
+      </div>
+    </div>
+  </main>
+
+  <footer class="page-footer">
+    <img src="/assets/favicon.png" alt="">J4FN Music / Admin
+  </footer>
 </body>
 </html>
