@@ -29,11 +29,18 @@
     return `${Math.floor(seconds / 3600)}h`;
   };
 
+  // Two mounts serve the same console. Under /admin/, Cloudflare Access gates the path
+  // and injects the Cf-Access-* identity headers, so calls must stay on /api/admin to
+  // carry that identity. Under /console (reached with the admin token) the Access app
+  // does not apply, so the ungated /console/api mirror is used with a bearer token.
+  const onAccessMount = window.location.pathname.startsWith('/admin');
+  const apiPath = (path) => (onAccessMount ? path : path.replace(/^\/api\/admin\//, '/console/api/'));
+
   async function api(path, options = {}) {
     const headers = { ...(options.headers || {}) };
     if (token()) headers.Authorization = `Bearer ${token()}`;
     if (options.body) headers['Content-Type'] = 'application/json';
-    const response = await fetch(path, { ...options, headers, cache: 'no-store' });
+    const response = await fetch(apiPath(path), { ...options, headers, cache: 'no-store' });
     let data = {};
     try { data = await response.json(); } catch { /* handled by status below */ }
     if (!response.ok) {

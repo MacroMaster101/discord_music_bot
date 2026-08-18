@@ -26,6 +26,7 @@ const STATIC_FILES = new Map([
   ['/assets/app.css', ['app.css', 'text/css; charset=utf-8']],
   ['/assets/public.js', ['public.js', 'application/javascript; charset=utf-8']],
   ['/assets/admin.js', ['admin.js', 'application/javascript; charset=utf-8']],
+  ['/assets/login.js', ['login.js', 'application/javascript; charset=utf-8']],
   ['/assets/logo.png', ['logo.png', 'image/png']],
   ['/assets/favicon.png', ['favicon.png', 'image/png']],
 ]);
@@ -99,12 +100,63 @@ function isAdminRequest(req, token = ADMIN_TOKEN) {
     || (Boolean(token) && safeEqual(getRequestToken(req), token));
 }
 
+// The /console/api mount is reachable from the internet (Cloudflare Access only gates
+// /admin and /api/admin), so token guesses are throttled: LOGIN_MAX_ATTEMPTS failures
+// from one IP inside LOGIN_WINDOW start a LOGIN_LOCKOUT cooldown.
+const LOGIN_MAX_ATTEMPTS = 6;
+const LOGIN_WINDOW_MS = 5 * 60 * 1000;
+const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
+const loginFailures = new Map();
+const loginLockouts = new Map();
+
+function clientIp(req) {
+  // Every request arrives from Cloudflare, so socket address alone would throttle all
+  // callers as one; CF-Connecting-IP carries the real client.
+  return String(req.headers['cf-connecting-ip']
+    || String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+    || req.socket?.remoteAddress
+    || 'unknown');
+}
+
+function loginRetryAfter(ip, now) {
+  const until = loginLockouts.get(ip);
+  if (until && now < until) return Math.ceil((until - now) / 1000);
+  if (until) loginLockouts.delete(ip);
+  return 0;
+}
+
+function recordLoginFailure(ip, now) {
+  const recent = (loginFailures.get(ip) || []).filter((at) => now - at <= LOGIN_WINDOW_MS);
+  recent.push(now);
+  if (recent.length >= LOGIN_MAX_ATTEMPTS) {
+    loginLockouts.set(ip, now + LOGIN_LOCKOUT_MS);
+    loginFailures.delete(ip);
+    console.warn(`[admin] token lockout for ${ip} after ${LOGIN_MAX_ATTEMPTS} failures`);
+    return;
+  }
+  loginFailures.set(ip, recent);
+}
+
 function requireAdmin(req, res) {
-  if (isAdminRequest(req)) return true;
+  const ip = clientIp(req);
+  const now = Date.now();
+
+  const retryAfter = loginRetryAfter(ip, now);
+  if (retryAfter) {
+    res.setHeader?.('Retry-After', String(retryAfter));
+    sendJson(res, 429, { error: `Too many attempts. Try again in ${Math.ceil(retryAfter / 60)} minute(s).` });
+    return false;
+  }
+
+  if (isAdminRequest(req)) {
+    loginFailures.delete(ip);
+    return true;
+  }
   if (!ADMIN_TOKEN) {
     sendJson(res, 503, { error: 'Cloudflare Access identity unavailable and ADMIN_TOKEN is not configured.' });
     return false;
   }
+  recordLoginFailure(ip, now);
   sendJson(res, 401, { error: 'Cloudflare Access session or admin token is invalid.' });
   return false;
 }
@@ -277,14 +329,24 @@ function createDashboardServer(client, queue, hooks = {}) {
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || '/', 'http://dashboard.local');
-    const pathname = url.pathname;
+    let pathname = url.pathname;
+
+    // /console/api/* is the ungated mirror of the Access-gated /api/admin/*. Cloudflare
+    // Access covers /admin and /api/admin, so a token-authenticated operator cannot
+    // reach those; rewriting here lets one set of handlers serve both mounts, with
+    // requireAdmin still enforcing identity-or-token on every call.
+    if (pathname.startsWith('/console/api/')) {
+      pathname = `/api/admin/${pathname.slice('/console/api/'.length)}`;
+    }
 
     try {
       if (req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
         return sendFile(res, 'public.html', 'text/html; charset=utf-8');
       }
       if (req.method === 'GET' && pathname === '/robots.txt') {
-        return sendText(res, 200, 'User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/admin\n');
+        // /console and /login are not behind Cloudflare Access, so unlike /admin they are
+        // actually crawlable — keep them out of search results explicitly.
+        return sendText(res, 200, 'User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/admin\nDisallow: /console\nDisallow: /login\n');
       }
       if (req.method === 'GET' && pathname === '/invite') {
         const inviteUrl = buildDiscordInviteUrl(client?.application?.id || client?.user?.id);
@@ -297,6 +359,15 @@ function createDashboardServer(client, queue, hooks = {}) {
         return res.end();
       }
       if (req.method === 'GET' && pathname === '/admin/') {
+        return sendFile(res, 'admin.html', 'text/html; charset=utf-8');
+      }
+      // Public sign-in chooser. Access gates /admin at the edge, so this page has to sit
+      // outside the Access application for the token route to be reachable at all.
+      if (req.method === 'GET' && (pathname === '/login' || pathname === '/login/')) {
+        return sendFile(res, 'login.html', 'text/html; charset=utf-8');
+      }
+      // Same console as /admin/, on a path Access does not gate; opened with the token.
+      if (req.method === 'GET' && (pathname === '/console' || pathname === '/console/')) {
         return sendFile(res, 'admin.html', 'text/html; charset=utf-8');
       }
       if (req.method === 'GET' && STATIC_FILES.has(pathname)) {
