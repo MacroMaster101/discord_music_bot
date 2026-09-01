@@ -209,16 +209,29 @@ function activeQueueEntries(queue) {
 }
 
 function publicGuildList(client, queue) {
-  if (!client?.guilds?.cache) return [];
-  const activeGuildIds = new Set(activeQueueEntries(queue).map(([guildId]) => String(guildId)));
-  return Array.from(client.guilds.cache.values())
-    .map((guild) => ({
-      name: String(guild.name || 'Discord Server'),
-      iconURL: guild.iconURL?.({ size: 128 }) || null,
-      memberCount: Number(guild.memberCount || 0),
-      active: activeGuildIds.has(String(guild.id)),
-    }))
-    .sort((a, b) => (b.active ? 1 : 0) - (a.active ? 1 : 0) || b.memberCount - a.memberCount);
+  try {
+    if (!client?.guilds?.cache) return [];
+    const activeGuildIds = new Set(activeQueueEntries(queue).map(([guildId]) => String(guildId)));
+    return Array.from(client.guilds.cache.values())
+      .map((guild) => {
+        let iconURL = null;
+        try {
+          iconURL = typeof guild.iconURL === 'function' ? guild.iconURL({ size: 128 }) : null;
+        } catch {
+          iconURL = null;
+        }
+        return {
+          name: String(guild.name || 'Discord Server'),
+          iconURL,
+          memberCount: Number(guild.memberCount || 0),
+          active: activeGuildIds.has(String(guild.id)),
+        };
+      })
+      .sort((a, b) => (b.active ? 1 : 0) - (a.active ? 1 : 0) || b.memberCount - a.memberCount);
+  } catch (err) {
+    console.error('Error generating public guild list:', err);
+    return [];
+  }
 }
 
 function buildPublicPayload(client, queue, hooks = {}) {
