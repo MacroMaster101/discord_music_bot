@@ -682,6 +682,9 @@ async function appendAndMaybePlay(guildId, serverQueue, song, statusMsg) {
 
   const shouldStartNow = serverQueue.songs.length === 0;
   serverQueue.songs.push(song);
+  if (serverQueue.songs.length === 2) {
+    maybePrefetchNextSong(serverQueue);
+  }
 
   if (shouldStartNow) {
     await statusMsg.edit('⏳ **Preparing audio stream...**').catch(() => {});
@@ -948,7 +951,29 @@ function moveSongNext(serverQueue, songId) {
 
   serverQueue.songs.splice(songIndex, 1);
   serverQueue.songs.splice(1, 0, song);
+  maybePrefetchNextSong(serverQueue);
   return { status: 'moved', song };
+}
+
+function maybePrefetchNextSong(serverQueue) {
+  const nextSong = serverQueue?.songs?.[1];
+  if (!nextSong || nextSong.prefetchedAudioUrl || nextSong.isPrefetching) return;
+
+  nextSong.isPrefetching = true;
+  getAudioUrl(nextSong.url)
+    .then((url) => {
+      if (url) {
+        nextSong.prefetchedAudioUrl = url;
+        nextSong.prefetchedAt = Date.now();
+        console.log(`⚡ Prefetched audio stream for next track: ${nextSong.title}`);
+      }
+    })
+    .catch((err) => {
+      console.warn(`Prefetch failed for "${nextSong.title}":`, err.message || err);
+    })
+    .finally(() => {
+      nextSong.isPrefetching = false;
+    });
 }
 
 async function playSong(guildId, song, seekSeconds = 0) {
@@ -971,9 +996,11 @@ async function playSong(guildId, song, seekSeconds = 0) {
     serverQueue.pausedAt = null;
     serverQueue.seekOffset = seekSeconds;
 
-    // Resolve immediately before playback. Googlevideo URLs are short-lived and
-    // queue-time URLs may have expired by the time a track starts (or after seek).
-    const audioUrl = await getAudioUrl(song.url);
+    // Use prefetched audio stream if available and fresh (< 3 hours old), otherwise resolve live.
+    const isPrefetchFresh = song.prefetchedAudioUrl && (Date.now() - (song.prefetchedAt || 0) < 3 * 3600 * 1000);
+    const audioUrl = (isPrefetchFresh && seekSeconds === 0)
+      ? song.prefetchedAudioUrl
+      : await getAudioUrl(song.url);
 
     if (!audioUrl) {
       throw new Error('yt-dlp did not return an audio URL');
@@ -1067,6 +1094,7 @@ async function playSong(guildId, song, seekSeconds = 0) {
     }
 
     console.log(`▶️ Playing: ${song.title}${seekSeconds ? ` (from ${seekSeconds}s)` : ''}`);
+    maybePrefetchNextSong(serverQueue);
     return true;
   } catch (err) {
     const technicalReason = getTechnicalErrorMessage(err);
