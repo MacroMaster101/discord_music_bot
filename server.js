@@ -254,7 +254,9 @@ function buildPublicPayload(client, queue, hooks = {}) {
     activeTracks: entries.map(([guildId, serverQueue], index) => {
       const song = serverQueue.songs[0];
       const progress = hooks.getQueueProgress?.(serverQueue) || {};
-      const guild = client?.guilds?.cache?.get?.(guildId);
+      const guild = client?.guilds?.cache?.get?.(String(guildId))
+        || serverQueue?.textChannel?.guild
+        || serverQueue?.voiceChannel?.guild;
       let serverIcon = null;
       try {
         serverIcon = typeof guild?.iconURL === 'function' ? guild.iconURL({ size: 64 }) : null;
