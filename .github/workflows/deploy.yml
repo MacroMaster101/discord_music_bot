@@ -30,6 +30,9 @@ jobs:
   deploy:
     needs: verify
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://music.j4fn.site
 
     steps:
       - name: Deploy via SSH
