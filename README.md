@@ -1,4 +1,4 @@
-# 🎵 J4FN MUSIC — Discord Music Bot 🎧
+# 🎵 Discord Music Bot 🎧
 
 A premium, self-hostable Discord music player featuring a glassmorphic web dashboard with full remote playback controls, resilient yt-dlp extraction (Node + automatic PO-token provider), interactive message buttons, and automatic voice channel management. 🎧✨
 
@@ -97,7 +97,7 @@ sudo apt-get update && sudo apt-get install -y docker.io docker-compose-v2 git \
   && sudo usermod -aG docker $USER && sudo systemctl enable --now docker
 # log out / back in so the docker group applies
 
-git clone https://github.com/MacroMaster101/discord_music_bot.git ~/discord_music_bot
+git clone https://github.com/<your-username>/discord_music_bot.git ~/discord_music_bot
 cd ~/discord_music_bot
 mkdir -p data
 
@@ -112,21 +112,21 @@ The dashboard is served on port `8080`. Direct IP access should be used only dur
 
 ### 2. Publish the dashboard securely with Cloudflare Tunnel
 
-1. Add the domain to Cloudflare and wait until its status is **Active**.
-2. In Cloudflare, go to **Networking → Tunnels**, create a remotely-managed tunnel named `j4fn-music-dashboard`, and copy only its raw token.
-3. Add a published-application route with hostname `music.j4fn.site` and service URL `http://bot:8080`.
-4. Create a Cloudflare Access self-hosted application for the same hostname, but protect **only** these four destinations:
-   - `music.j4fn.site/admin`
-   - `music.j4fn.site/admin/*`
-   - `music.j4fn.site/api/admin`
-   - `music.j4fn.site/api/admin/*`
-5. Remove any existing blank-path/whole-host destination for `music.j4fn.site`; otherwise Cloudflare will also require login for the public `/` page and `/api/public/*` APIs.
+1. Add your domain to Cloudflare and wait until its status is **Active**.
+2. In Cloudflare, go to **Networking → Tunnels**, create a remotely-managed tunnel named `music-dashboard-tunnel`, and copy only its raw token.
+3. Add a published-application route with your chosen hostname (e.g. `music.example.com`) and service URL `http://bot:8080`.
+4. Create a Cloudflare Access self-hosted application for the same hostname, but protect **only** these four destinations (replacing `music.example.com` with your hostname):
+   - `music.example.com/admin`
+   - `music.example.com/admin/*`
+   - `music.example.com/api/admin`
+   - `music.example.com/api/admin/*`
+5. Remove any existing blank-path/whole-host destination for your hostname; otherwise Cloudflare will also require login for the public `/` page and `/api/public/*` APIs.
 6. Use an **Allow** policy containing only exact administrator email addresses. Do not use `Everyone`. Keep the application session short enough for your team (for example, 24 hours).
 7. Add the raw tunnel token as the GitHub Actions secret `CLOUDFLARE_TUNNEL_TOKEN`, then deploy `main`.
 
 Cloudflare path wildcards do not include the parent path, which is why both `admin` and `admin/*` are listed. The tunnel route should use origin service URL `http://bot:8080`; public HTTPS terminates at Cloudflare, so the private Docker-network hop correctly remains HTTP.
 
-The workflow stores the token only in the EC2 `.env`, enables the `tunnel` Compose profile, binds host port `8080` to localhost, waits for the bot dashboard health check, and starts `cloudflared`. After `https://music.j4fn.site` is verified, remove the AWS security-group inbound rule for TCP `8080`. Keep `ADMIN_TOKEN` as a local recovery fallback.
+The workflow stores the token only in the EC2 `.env`, enables the `tunnel` Compose profile, binds host port `8080` to localhost, waits for the bot dashboard health check, and starts `cloudflared`. After `https://music.example.com` is verified, remove the AWS security-group inbound rule for TCP `8080`. Keep `ADMIN_TOKEN` as a local recovery fallback.
 
 ### Dashboard routes and privacy boundary
 

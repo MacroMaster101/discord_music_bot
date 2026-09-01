@@ -95,5 +95,5 @@ jobs:
             test "$health" = "healthy"
             if grep -q '^COMPOSE_PROFILES=.*tunnel' .env; then
               docker compose logs --tail=30 cloudflared
-              test "$(docker inspect --format '{{.State.Running}}' j4fn-cloudflared)" = "true"
+              test "$(docker inspect --format '{{.State.Running}}' music-cloudflared)" = "true"
             fi

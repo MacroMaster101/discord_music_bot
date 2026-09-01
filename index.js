@@ -1676,9 +1676,10 @@ function buildNowPlayingEmbed(song, serverQueue) {
 // ──── Help Command ────
 function sendHelp(message) {
   const PREFIX = getPrefix(message.guild.id);
+  const botName = client?.user?.username || 'Discord Music';
   const embed = new EmbedBuilder()
     .setColor(0x5865F2)
-    .setTitle('🎵 J4FN Music Bot — Commands')
+    .setTitle(`🎵 ${botName} — Commands`)
     .setDescription(`Use prefix \`${PREFIX}\` before each command.\nAliases are shown in parentheses.`)
     .addFields(
       {

@@ -20,9 +20,9 @@ const guild = {
 };
 const client = {
   user: {
-    id: '1446822006619246623',
-    username: 'J4FN MUSIC',
-    tag: 'J4FN MUSIC#3509',
+    id: '123456789012345678',
+    username: 'Discord Music',
+    tag: 'Discord Music#1234',
     displayAvatarURL: () => 'https://cdn.example.test/bot.png',
   },
   ws: { status: 0, ping: 44 },
@@ -110,7 +110,7 @@ test('public page and API are reachable without an admin token', async () => {
   assert.equal(page.status, 200);
   const pageHtml = await page.text();
   assert.match(pageHtml, /Live status/);
-  assert.match(pageHtml, /Add J4FN Music/);
+  assert.match(pageHtml, /Add Discord Music/);
   assert.match(pageHtml, /og:description/);
 
   const response = await fetch(`${baseUrl}/api/public/status`);
@@ -135,8 +135,8 @@ test('public page and API are reachable without an admin token', async () => {
 });
 
 test('public invite route redirects to Discord with least-privilege bot permissions', async () => {
-  const expected = buildDiscordInviteUrl('1446822006619246623');
-  assert.equal(expected, 'https://discord.com/oauth2/authorize?client_id=1446822006619246623&permissions=281475013495808&integration_type=0&scope=bot+applications.commands');
+  const expected = buildDiscordInviteUrl('123456789012345678');
+  assert.equal(expected, 'https://discord.com/oauth2/authorize?client_id=123456789012345678&permissions=281475013495808&integration_type=0&scope=bot+applications.commands');
 
   const response = await fetch(`${baseUrl}/invite`, { redirect: 'manual' });
   assert.equal(response.status, 302);

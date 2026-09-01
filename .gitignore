@@ -1,12 +1,38 @@
+# Dependencies
 node_modules/
+
+# Environment configurations & secrets
 .env
-*.log
-.DS_Store
-*.zip
-*.bak
-cookies.txt
+.env.*
+!.env.example
+
+# YouTube cookies and authentication artifacts
+*cookies*.txt
+*cookies*.base64
 cookies_base64.txt
+
+# Keys and certificates
+*.pem
+*.key
+*.crt
+*.cert
+
+# Logs and runtime artifacts
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Persistent local bot storage
+data/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+*.bak
+*.zip
+
+# Assistant / scratch tooling
 .claude/
 .superpowers/
-data/
 docs/

@@ -42,14 +42,14 @@ services:
 
   cloudflared:
     image: cloudflare/cloudflared:${CLOUDFLARED_VERSION:-latest}
-    container_name: j4fn-cloudflared
+    container_name: music-cloudflared
     profiles:
       - tunnel
     restart: unless-stopped
     depends_on:
       bot:
         condition: service_healthy
-    # The route is managed in Cloudflare: music.j4fn.site -> http://bot:8080.
+    # The route is managed in Cloudflare: music.example.com -> http://bot:8080.
     # TUNNEL_TOKEN stays in the server .env file and is never committed.
     command: tunnel --no-autoupdate run
     environment:

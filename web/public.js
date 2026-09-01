@@ -42,7 +42,7 @@
 
   function setIdentity(bot) {
     if (!bot) return;
-    $('brand-name').textContent = bot.name || 'J4FN MUSIC';
+    $('brand-name').textContent = bot.name || 'Discord Music';
     $('signal-tag').textContent = bot.tag || 'Discord gateway';
   }
 

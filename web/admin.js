@@ -12,7 +12,9 @@
       return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
     } catch { return ''; }
   };
-  const token = () => sessionStorage.getItem('j4fnAdminToken') || '';
+  const token = () => sessionStorage.getItem('musicAdminToken') || '';
+  const setToken = (value) => sessionStorage.setItem('musicAdminToken', value);
+  const clearToken = () => sessionStorage.removeItem('musicAdminToken');
   const formatDuration = (milliseconds) => {
     let seconds = Math.max(0, Math.floor(Number(milliseconds || 0) / 1000));
     const days = Math.floor(seconds / 86400); seconds %= 86400;
@@ -139,7 +141,7 @@
       renderCommandLog(data.commandLog);
     } catch (error) {
       if (error.status === 401) {
-        sessionStorage.removeItem('j4fnAdminToken');
+        clearToken();
         setLocked(true, 'Cloudflare Access session or admin token was rejected.');
       } else {
         toast(error.message, 'error');
@@ -216,7 +218,7 @@
     event.preventDefault();
     const value = $('admin-token').value.trim();
     if (!value) return;
-    sessionStorage.setItem('j4fnAdminToken', value);
+    setToken(value);
     $('unlock-message').textContent = 'Verifying…';
     try {
       await Promise.all([refreshAdmin(), loadGuilds()]);
@@ -225,13 +227,13 @@
       await Promise.all([loadSettings(), loadPresence()]);
       state.refreshTimer = setInterval(refreshAdmin, 6000);
     } catch (error) {
-      sessionStorage.removeItem('j4fnAdminToken');
+      clearToken();
       setLocked(true, error.message);
     }
   });
 
   $('lock-admin').addEventListener('click', () => {
-    sessionStorage.removeItem('j4fnAdminToken');
+    clearToken();
     $('admin-token').value = '';
     setLocked(true, 'Console locked.');
   });

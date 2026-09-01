@@ -1,7 +1,7 @@
 {
-  "name": "j4fn-music",
+  "name": "discord-music-bot",
   "version": "1.0.0",
-  "description": "J4FN MUSIC - Discord music bot",
+  "description": "Discord music bot with public dashboard and admin console",
   "main": "index.js",
   "license": "MIT",
   "scripts": {

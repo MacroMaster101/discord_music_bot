@@ -48,7 +48,7 @@
       });
 
       if (res.ok) {
-        sessionStorage.setItem('j4fnAdminToken', value);
+        sessionStorage.setItem('musicAdminToken', value);
         setState('authorized');
         // Hold the authorized state briefly so the meter reads before the page moves.
         setTimeout(() => { window.location.href = '/console'; }, 420);

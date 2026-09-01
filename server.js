@@ -194,7 +194,7 @@ function getVolume(serverQueue) {
 
 function getBotIdentity(client) {
   return {
-    name: client?.user?.username || 'J4FN MUSIC',
+    name: client?.user?.username || 'Discord Music',
     tag: client?.user?.tag || '',
     avatar: client?.user?.displayAvatarURL?.({ size: 256 }) || '',
   };
