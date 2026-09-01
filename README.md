@@ -11,7 +11,7 @@ A premium, self-hostable Discord music player featuring a glassmorphic web dashb
 
 ## ✨ Key Features 🚀
 
-- 📊 **Public Status Dashboard** — A public-safe status page with bot health, aggregate reach, active track titles, live progress, rolling activity graphs, and a least-privilege Discord install flow at `/invite`. It never publishes Discord server IDs/names, voice channels, users, queues, logs, or system telemetry.
+- 📊 **Public Status Dashboard** — A public-safe status page with bot health, aggregate reach, active track titles, live progress, rolling activity graphs, joined communities showcase, and a least-privilege Discord install flow at `/invite`. Internal Discord server snowflake IDs, voice channels, users, queues, logs, and system telemetry remain strictly protected.
 - 🔐 **Protected Admin Console** — Cloudflare Access protects playback controls, queues, command logs, runtime telemetry, persistent Discord presence editing, and global/per-server settings CRUD; a server-side token remains available for local/recovery access.
 - 🎛️ **Full Web Remote** — Drive the bot from the browser: play/pause, restart, skip, stop, ±10s, **click-to-seek**, loop, shuffle, volume, queue management (reorder/remove/clear), and add songs by URL or search.
 - 🎵 **Advanced Playback** — Play via search query or direct URL (`youtube.com`, `youtu.be`, `/shorts/`, `/live/`).
