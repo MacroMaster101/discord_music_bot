@@ -88,7 +88,7 @@ const PLAYER_CLIENT_CHAINS = [
   // guest-only fallback after the cookie-capable web clients.
   'android_vr',
 ];
-const YTDLP_ATTEMPT_TIMEOUT_MS = 20_000;
+const YTDLP_ATTEMPT_TIMEOUT_MS = 45_000;
 
 if (!TOKEN) {
   console.error('Missing Discord bot token. Set TOKEN in your environment.');
@@ -1155,7 +1155,8 @@ async function getAudioUrl(url) {
 
       if (i < clientChains.length - 1) {
         const reason = isBlockedError ? 'blocked' : 'failed';
-        console.warn(`Audio extraction ${reason} with "${clientChains[i]}", trying next client chain...`);
+        const errDetail = err?.stderr?.trim() || err?.message || String(err);
+        console.warn(`Audio extraction ${reason} with "${clientChains[i]}": ${errDetail}, trying next client chain...`);
         continue;
       }
 
