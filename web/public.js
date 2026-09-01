@@ -75,13 +75,24 @@
       const title = link
         ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(track.title)}</a>`
         : escapeHtml(track.title);
+      const serverIcon = safeUrl(track.serverIcon);
+      const serverBadge = track.serverName
+        ? `<span class="track-server">
+            ${serverIcon ? `<img class="track-server-icon" src="${escapeHtml(serverIcon)}" alt="" loading="lazy">` : '<i class="room-indicator"></i>'}
+            <span>${escapeHtml(track.serverName)}</span>
+          </span>`
+        : '';
+      const queueSuffix = track.queueCount > 0 ? ` · +${track.queueCount} in queue` : '';
       return `<article class="track-card">
         ${art}
         <div class="track-copy">
-          <span>${track.paused ? 'PAUSED' : 'NOW PLAYING'}</span>
+          <div class="track-header">
+            <span>${track.paused ? 'PAUSED' : 'NOW PLAYING'}</span>
+            ${serverBadge}
+          </div>
           <h3 title="${escapeHtml(track.title)}">${title}</h3>
           <div class="progress"><i id="public-fill-${escapeHtml(track.id)}" style="width:${percentage}%"></i></div>
-          <div class="progress-labels"><span id="public-elapsed-${escapeHtml(track.id)}">${escapeHtml(track.elapsedText || formatClock(elapsed))}</span><span>${escapeHtml(track.durationText || 'live')}</span></div>
+          <div class="progress-labels"><span id="public-elapsed-${escapeHtml(track.id)}">${escapeHtml(track.elapsedText || formatClock(elapsed))}</span><span>${escapeHtml(track.durationText || 'live')}${escapeHtml(queueSuffix)}</span></div>
         </div>
       </article>`;
     }).join('');

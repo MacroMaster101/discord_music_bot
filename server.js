@@ -251,14 +251,22 @@ function buildPublicPayload(client, queue, hooks = {}) {
     activeStreams: entries.length,
     totalSongsPlayed: Number(botStats.totalSongsPlayed || 0),
     servers: publicGuildList(client, queue),
-    activeTracks: entries.map(([, serverQueue], index) => {
+    activeTracks: entries.map(([guildId, serverQueue], index) => {
       const song = serverQueue.songs[0];
       const progress = hooks.getQueueProgress?.(serverQueue) || {};
+      const guild = client?.guilds?.cache?.get?.(guildId);
+      let serverIcon = null;
+      try {
+        serverIcon = typeof guild?.iconURL === 'function' ? guild.iconURL({ size: 64 }) : null;
+      } catch {}
       return {
         id: `stream-${index + 1}`,
         title: song.title || 'Unknown track',
         url: song.url || null,
         thumbnail: progress.thumbnail || song.thumbnail || null,
+        serverName: guild?.name || 'Discord Server',
+        serverIcon,
+        queueCount: Math.max(0, (serverQueue.songs?.length || 1) - 1),
         elapsedSeconds: Number(progress.elapsedSeconds || 0),
         durationSeconds: Number(progress.durationSeconds || 0),
         elapsedText: progress.elapsedText || '0:00',

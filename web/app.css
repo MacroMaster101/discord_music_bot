@@ -110,7 +110,12 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .track-art { width: 108px; aspect-ratio: 1; border-radius: 15px; object-fit: cover; background: var(--surface-2); }
 .track-fallback { display: grid; place-items: center; font-size: 30px; }
 .track-copy { min-width: 0; }
-.track-copy > span { color: var(--pink); font-weight: 800; font-size: 10px; letter-spacing: .14em; }
+.track-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
+.track-header > span { color: var(--pink); font-weight: 800; font-size: 10px; letter-spacing: .14em; }
+.track-server { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 99px; background: rgba(139,109,255,.1); border: 1px solid rgba(139,109,255,.25); color: var(--violet-2); font-size: 10px; font-weight: 700; max-width: 60%; }
+.track-server span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track-server-icon { width: 14px; height: 14px; border-radius: 50%; object-fit: cover; }
+.room-indicator { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); flex-shrink: 0; }
 .track-copy h3 { margin: 7px 0 18px; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .track-copy h3 a { text-decoration: none; }
 .track-copy h3 a:hover { color: var(--violet-2); }

@@ -64,6 +64,8 @@ test('public payload contains useful aggregates and public server showcase witho
   assert.equal(payload.guilds, 1);
   assert.equal(payload.audience, 42);
   assert.equal(payload.activeTracks[0].title, 'Public Song');
+  assert.equal(payload.activeTracks[0].serverName, 'Private Guild Name');
+  assert.equal(payload.activeTracks[0].queueCount, 0);
   assert.equal(payload.prefix, '!');
   assert.equal(payload.servers.length, 1);
   assert.equal(payload.servers[0].name, 'Private Guild Name');
