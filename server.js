@@ -208,6 +208,19 @@ function activeQueueEntries(queue) {
   return Array.from(queue?.entries?.() || []).filter(([, serverQueue]) => serverQueue?.songs?.[0]);
 }
 
+function publicGuildList(client, queue) {
+  if (!client?.guilds?.cache) return [];
+  const activeGuildIds = new Set(activeQueueEntries(queue).map(([guildId]) => String(guildId)));
+  return Array.from(client.guilds.cache.values())
+    .map((guild) => ({
+      name: String(guild.name || 'Discord Server'),
+      iconURL: guild.iconURL?.({ size: 128 }) || null,
+      memberCount: Number(guild.memberCount || 0),
+      active: activeGuildIds.has(String(guild.id)),
+    }))
+    .sort((a, b) => (b.active ? 1 : 0) - (a.active ? 1 : 0) || b.memberCount - a.memberCount);
+}
+
 function buildPublicPayload(client, queue, hooks = {}) {
   const online = isClientOnline(client);
   const botStats = hooks.getBotStats?.() || { totalSongsPlayed: 0 };
@@ -224,6 +237,7 @@ function buildPublicPayload(client, queue, hooks = {}) {
     audience: online ? client.guilds.cache.reduce((sum, guild) => sum + (guild.memberCount || 0), 0) : 0,
     activeStreams: entries.length,
     totalSongsPlayed: Number(botStats.totalSongsPlayed || 0),
+    servers: publicGuildList(client, queue),
     activeTracks: entries.map(([, serverQueue], index) => {
       const song = serverQueue.songs[0];
       const progress = hooks.getQueueProgress?.(serverQueue) || {};

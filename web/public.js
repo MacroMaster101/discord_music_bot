@@ -104,11 +104,47 @@
       $('metric-ping').textContent = data.ping >= 0 ? `${Math.round(data.ping)} ms` : '—';
       $('last-updated').textContent = `Updated ${new Date(data.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
       renderTracks(data.activeTracks);
+      renderServers(data.servers);
     } catch {
       failures += 1;
       if (failures >= 3) setConnectionState('offline');
       else setConnectionState('reconnecting');
     }
+  }
+
+  function renderServers(servers) {
+    const container = $('public-servers');
+    if (!container) return;
+    const countEl = $('servers-count');
+    if (countEl) countEl.textContent = `${formatCount(servers?.length || 0)} servers`;
+    if (!servers?.length) {
+      container.innerHTML = '<div class="empty-state"><span>🏰</span><strong>No servers joined yet</strong><p>Invite the bot to your Discord server to see it featured here.</p></div>';
+      return;
+    }
+
+    container.innerHTML = servers.map((server) => {
+      const image = safeUrl(server.iconURL);
+      const name = escapeHtml(server.name || 'Discord Server');
+      const initials = (server.name || 'DS').split(/\s+/).filter(Boolean).map((w) => w[0]).join('').slice(0, 3).toUpperCase();
+      const iconHtml = image
+        ? `<img class="server-icon" src="${escapeHtml(image)}" alt="${name}" loading="lazy" referrerpolicy="no-referrer">`
+        : `<div class="server-icon server-fallback">${escapeHtml(initials)}</div>`;
+      const badgeHtml = server.active
+        ? '<span class="server-badge active"><i class="pulse-dot"></i> Playing</span>'
+        : '<span class="server-badge">Idle</span>';
+      return `<article class="server-card">
+        <div class="server-avatar-wrap">
+          ${iconHtml}
+        </div>
+        <div class="server-info">
+          <h3 title="${name}">${name}</h3>
+          <div class="server-meta">
+            <span class="server-members">${formatCount(server.memberCount)} members</span>
+            ${badgeHtml}
+          </div>
+        </div>
+      </article>`;
+    }).join('');
   }
 
   function chartGeometry(values) {

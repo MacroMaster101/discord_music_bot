@@ -35,6 +35,7 @@
       <div class="nav-links">
         <a href="#status">Status</a>
         <a href="#live">Now playing</a>
+        <a href="#servers">Communities</a>
         <a href="#commands">Commands</a>
         <a href="#invite">Add bot</a>
         <a class="button button-quiet" href="/login">Admin</a>
@@ -91,6 +92,16 @@
             <div class="chart-title"><div><span>Active rooms</span><strong id="chart-stream-value">—</strong></div><em>concurrent streams</em></div>
             <svg class="chart" viewBox="0 0 600 180" preserveAspectRatio="none" role="img" aria-label="Active stream history"><defs><linearGradient id="stream-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff4fb8" stop-opacity=".35"/><stop offset="1" stop-color="#ff4fb8" stop-opacity="0"/></linearGradient></defs><path id="stream-area" class="chart-area" fill="url(#stream-fill)"></path><polyline id="stream-line" class="chart-line chart-line-pink"></polyline></svg>
           </article>
+        </div>
+      </section>
+
+      <section class="section" id="servers">
+        <div class="section-heading">
+          <div><span class="kicker">COMMUNITIES</span><h2>Joined servers</h2></div>
+          <span class="updated" id="servers-count">0 servers</span>
+        </div>
+        <div id="public-servers" class="server-grid">
+          <div class="empty-state"><span>🏰</span><strong>No servers joined yet</strong><p>Invite the bot to your Discord server to see it featured here.</p></div>
         </div>
       </section>
 

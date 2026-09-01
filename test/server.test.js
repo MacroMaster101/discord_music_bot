@@ -58,17 +58,20 @@ const hooks = {
   },
 };
 
-test('public payload contains useful aggregates without private guild data', () => {
+test('public payload contains useful aggregates and public server showcase without private identifiers', () => {
   const payload = buildPublicPayload(client, queue, hooks);
   assert.equal(payload.status, 'online');
   assert.equal(payload.guilds, 1);
   assert.equal(payload.audience, 42);
   assert.equal(payload.activeTracks[0].title, 'Public Song');
   assert.equal(payload.prefix, '!');
+  assert.equal(payload.servers.length, 1);
+  assert.equal(payload.servers[0].name, 'Private Guild Name');
+  assert.equal(payload.servers[0].memberCount, 42);
+  assert.equal(payload.servers[0].active, true);
 
   const serialized = JSON.stringify(payload);
   assert.doesNotMatch(serialized, /private-guild-id/i);
-  assert.doesNotMatch(serialized, /Private Guild Name/i);
   assert.doesNotMatch(serialized, /Private Voice Room/i);
   assert.doesNotMatch(serialized, /Private User/i);
   assert.doesNotMatch(serialized, /Private Queue Item/i);
@@ -111,11 +114,17 @@ test('public page and API are reachable without an admin token', async () => {
   const pageHtml = await page.text();
   assert.match(pageHtml, /Live status/);
   assert.match(pageHtml, /Add Discord Music/);
+  assert.match(pageHtml, /Joined servers/);
+  assert.match(pageHtml, /id="public-servers"/);
   assert.match(pageHtml, /og:description/);
 
   const response = await fetch(`${baseUrl}/api/public/status`);
   assert.equal(response.status, 200);
-  assert.equal((await response.json()).activeStreams, 1);
+  const statusJson = await response.json();
+  assert.equal(statusJson.activeStreams, 1);
+  assert.equal(statusJson.servers.length, 1);
+  assert.equal(statusJson.servers[0].name, 'Private Guild Name');
+  assert.equal(statusJson.servers[0].active, true);
   assert.equal(response.headers.get('access-control-allow-origin'), '*');
   assert.match(response.headers.get('content-security-policy'), /default-src 'self'/);
 
