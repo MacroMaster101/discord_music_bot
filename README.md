@@ -17,7 +17,7 @@ A premium, self-hostable Discord music player featuring a glassmorphic web dashb
 - 🎵 **Advanced Playback** — Play via search query or direct URL (`youtube.com`, `youtu.be`, `/shorts/`, `/live/`).
 - 🔍 **Interactive Search** — `!search` lets you pick from the top 5 YouTube results with Discord buttons.
 - 📂 **Playlist Handler** — Queue full YouTube playlists via `!playlist`.
-- 🟢 **Spotify Links** — Paste a Spotify track or album link; the bot reads the song details from Spotify and plays the matching YouTube audio.
+- 🟢 **Spotify Links** — Paste a Spotify track, album, or playlist link; the bot reads the song details from Spotify and plays the matching YouTube audio.
 - 🎤 **Lyrics Lookup** — `!lyrics` fetches lyrics for the current song.
 - 🎛️ **In-Chat Controls** — Tap message buttons to pause, skip, seek, adjust volume, and view the queue.
 - 🤖 **Playback Resilience** — Node JS runtime + an automatic **PO-token provider** sidecar, player-client fallback chains, and optional YouTube cookies for restricted playback environments.
@@ -46,9 +46,9 @@ A premium, self-hostable Discord music player featuring a glassmorphic web dashb
 Commands use your server's prefix (default: `!`).
 
 ### 🎶 Playback
-- `!play <query / URL>` (`!p`) — Search and stream a song, or append to queue. Accepts YouTube links and Spotify track/album links; any other URL is rejected.
+- `!play <query / URL>` (`!p`) — Search and stream a song, or append to queue. Accepts YouTube links and Spotify track/album/playlist links; any other URL is rejected.
 - `!search <query>` (`!sr`) — Search YouTube and choose from the top 5.
-- `!playlist <URL>` (`!pl`) — Load and queue a full YouTube playlist or Spotify album.
+- `!playlist <URL>` (`!pl`) — Load and queue a full YouTube playlist, or a Spotify album or playlist.
 - `!pause` / `!resume` (`!unpause`) — Pause / resume.
 - `!skip` (`!s`) — Skip the current song.
 - `!seek <time>` — Jump to a timestamp (e.g. `1:30` or `90`).
@@ -84,7 +84,8 @@ Copy `.env.example` to `.env` and fill in:
 | `TUNNEL_TOKEN` | tunnel only | Raw token for a remotely-managed Cloudflare Tunnel. Never commit it. |
 | `CF_ACCESS_TEAM_DOMAIN` | recommended | Your Zero Trust team domain, e.g. `myteam.cloudflareaccess.com`. With `CF_ACCESS_AUD`, enables Access JWT verification. |
 | `CF_ACCESS_AUD` | recommended | The Access application's **Application Audience (AUD) Tag**. When both are unset, Access headers are trusted without verification (a warning is logged). |
-| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | optional | Enables Spotify track and album links. Create an app at the [Spotify developer dashboard](https://developer.spotify.com/dashboard). Since February 2026 the app owner needs Spotify Premium, and bots can no longer read playlists. |
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | optional | Enables Spotify track and album links. Create an app at the [Spotify developer dashboard](https://developer.spotify.com/dashboard); since February 2026 the app owner needs Spotify Premium. Playlist links work without these. |
+| `PRESENCE_STREAM_URL` | optional | Link behind the purple **Streaming** status while music plays. Must be a Twitch channel or YouTube video URL (default `https://www.twitch.tv/discord`). Never a song link: the status is visible in every server. |
 | `FORMSPREE_FORM_ID` | optional | Enables the public **Report a bug** button. Reports are relayed server-side to this [Formspree](https://formspree.io) form, which emails them to the form owner. The ID is the part after `/f/` in the form endpoint. |
 | `BGUTIL_BASE_URL` | optional | PO-token provider URL (defaults to the compose sidecar `http://bgutil-provider:4416`). |
 | `YTDLP_COOKIES_PATH` / `YTDLP_COOKIES_BASE64` | optional | YouTube cookies (path or base64) to unlock login-restricted videos. |
@@ -153,6 +154,16 @@ The workflow stores the token only in the EC2 `.env`, enables the `tunnel` Compo
 
 The public payload is covered by an automated privacy regression test. Access-authenticated tunnel requests are recognized from Cloudflare's identity and assertion headers. The optional recovery token is sent as a bearer token and retained only in browser `sessionStorage`, so closing the tab/session clears it. Keep the origin bound to localhost and reachable only through the Tunnel.
 
+### Changing the server `.env`
+
+The bot reads `.env` when its container starts, through a bind mount. Editors and `sed -i` often save by replacing the file, and an existing container keeps seeing the old copy, so after editing `.env` by hand run:
+
+```bash
+docker compose up -d --force-recreate bot
+```
+
+Deploys already recreate the containers.
+
 ### 3. (Optional) GitHub Actions auto-deploy
 
 `.github/workflows/deploy.yml` redeploys on push to `main` via SSH. Add these **Repository Secrets** (Settings → Secrets and variables → Actions):
@@ -187,11 +198,13 @@ npm test
 
 Spotify does not allow its audio to be streamed by bots, so the bot uses Spotify only for song details and plays the matching YouTube audio:
 
-1. `!play https://open.spotify.com/track/…` (or an album link, also accepted by `!playlist`).
-2. The bot reads the title, artists, and length from the Spotify Web API (client-credentials, no user login).
-3. Just before each song plays, it searches YouTube for "artist title" and picks the result closest in length, skipping live/cover/remix versions the title doesn't ask for.
+1. `!play <spotify link>` — a track, album, or playlist (`!playlist` accepts albums and playlists too).
+2. The bot reads each song's title, artists, and length:
+   - **tracks and albums** from the Spotify Web API (client credentials, needs `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`);
+   - **playlists** from Spotify's public embed player, because since the February 2026 Web API changes bots can no longer read playlists through the API. This needs no credentials, but it is unofficial: if Spotify changes that page, playlist links stop working until the bot is updated.
+3. Just before each song plays, it searches YouTube for "artist title" and picks the result closest in length, preferring official audio and skipping live/cover/remix versions the title doesn't ask for.
 
-Albums queue up to 100 tracks. **Playlist links are not supported**: since Spotify's February 2026 Web API changes, playlist contents are only readable by the playlist's owner. Occasionally the YouTube match may be a different recording of the same song.
+Albums and playlists queue up to 100 tracks; private playlists cannot be read. Occasionally the YouTube match may be a different recording of the same song.
 
 ---
 

@@ -78,7 +78,10 @@ jobs:
               chmod 600 "$env_tmp"
               mv "$env_tmp" .env
             fi
-            docker compose up -d --build --remove-orphans
+            # --force-recreate: the bot reads the bind-mounted .env at startup, and
+            # rewriting .env above replaces the file, so an existing container
+            # would keep seeing the old one. Always start from a fresh container.
+            docker compose up -d --build --remove-orphans --force-recreate
             health="starting"
             for _ in $(seq 1 48); do
               health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' discord-music-bot 2>/dev/null || true)"

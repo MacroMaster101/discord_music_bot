@@ -107,3 +107,46 @@ test('YouTube matching prefers the closest length and skips unwanted versions', 
   assert.equal(pickBestYouTubeMatch(track, []), null);
   assert.equal(youTubeQueryFor({ title: 'Song', artists: ['A', 'B', 'C'] }), 'A B Song');
 });
+
+test('playlists are read from the public embed page without credentials', async () => {
+  const PLAYLIST_ID = '4KbVm88FtGdO3pGRwkCWko';
+  const entity = {
+    type: 'playlist',
+    name: 'Sinhala songs',
+    coverArt: { sources: [{ url: 'https://image-cdn.spotify.com/cover.jpg' }] },
+    trackList: [
+      { uri: `spotify:track:${TRACK_ID}`, title: 'Bowitiya Mal', subtitle: 'Ravi Jay, Nipuni Sharada', duration: 268976, isPlayable: true, entityType: 'track' },
+      { uri: 'spotify:episode:xyz', title: 'A podcast', subtitle: 'Show', duration: 1000, entityType: 'episode' },
+      { uri: `spotify:track:${ALBUM_ID}`, title: 'Unavailable', subtitle: 'Someone', duration: 1000, isPlayable: false, entityType: 'track' },
+    ],
+  };
+  const html = `<html><script id="__NEXT_DATA__" type="application/json">${JSON.stringify({ props: { pageProps: { state: { data: { entity } } } } })}</script></html>`;
+  const requested = [];
+  const fetchImpl = async (url) => {
+    requested.push(url);
+    return new Response(html, { status: 200, headers: { 'content-type': 'text/html' } });
+  };
+
+  const playlist = await createSpotifyClient({ fetchImpl }).getPlaylist(PLAYLIST_ID);
+  assert.deepEqual(requested, [`https://open.spotify.com/embed/playlist/${PLAYLIST_ID}`]);
+  assert.equal(playlist.name, 'Sinhala songs');
+  assert.deepEqual(playlist.tracks, [{
+    title: 'Bowitiya Mal',
+    artists: ['Ravi Jay', 'Nipuni Sharada'],
+    durationMs: 268976,
+    spotifyUrl: `https://open.spotify.com/track/${TRACK_ID}`,
+    image: 'https://image-cdn.spotify.com/cover.jpg',
+  }]);
+
+  const changedPage = async () => new Response('<html>new layout</html>', { status: 200 });
+  await assert.rejects(
+    createSpotifyClient({ fetchImpl: changedPage }).getPlaylist(PLAYLIST_ID),
+    (err) => err instanceof SpotifyError && /could not be read/.test(err.userMessage),
+  );
+  const gone = async () => new Response('', { status: 404 });
+  await assert.rejects(
+    createSpotifyClient({ fetchImpl: gone }).getPlaylist(PLAYLIST_ID),
+    (err) => err instanceof SpotifyError && /private or deleted/.test(err.userMessage),
+  );
+  await assert.rejects(createSpotifyClient({ fetchImpl }).getPlaylist('../../evil'), SpotifyError);
+});
