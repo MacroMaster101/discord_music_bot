@@ -36,14 +36,14 @@
     const online = state === 'online';
     const dot = document.querySelector('.live-dot');
     dot?.classList.toggle('online', online);
-    $('hero-state').textContent = online ? 'Live and operational' : state === 'offline' ? 'Dashboard unreachable' : 'Reconnecting to Discord';
+    $('hero-state').textContent = online ? 'Live and operational' : state === 'offline' ? 'Status unavailable right now' : 'Reconnecting';
     $('signal-status').textContent = online ? 'Online' : state;
   }
 
   function setIdentity(bot) {
     if (!bot) return;
     $('brand-name').textContent = bot.name || 'Discord Music';
-    $('signal-tag').textContent = bot.tag || 'Discord gateway';
+    $('signal-tag').textContent = bot.tag || 'Music bot';
   }
 
   function setCommandPrefix(prefix) {

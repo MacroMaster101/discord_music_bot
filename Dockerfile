@@ -43,5 +43,6 @@ RUN mkdir -p /etc/yt-dlp/plugins \
 # Copy application files
 COPY . .
 
-# Start the bot
-CMD ["npm", "start"]
+# Start the bot. Run node directly (not via npm) so it receives Docker's
+# SIGTERM and can save queues to resume after a restart.
+CMD ["node", "index.js"]

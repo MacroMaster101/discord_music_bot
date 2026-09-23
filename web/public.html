@@ -3,25 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Turn every Discord voice channel into a live stage with Discord Music—YouTube playback, smart queues, interactive controls, lyrics, and live status.">
+  <meta name="description" content="Turn every Discord voice channel into a live stage: play YouTube and Spotify links or search by name, with smart queues, one-tap controls, lyrics, and live status.">
   <meta name="theme-color" content="#e51f38">
   <link rel="canonical" href="/">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Discord Music">
   <meta property="og:title" content="Discord Music · Every room in rhythm">
-  <meta property="og:description" content="YouTube music, smart queues, interactive controls, lyrics, and live status for your Discord server.">
+  <meta property="og:description" content="YouTube and Spotify music, smart queues, one-tap controls, lyrics, and live status for your Discord server.">
   <meta property="og:url" content="/">
   <meta property="og:image" content="/assets/logo.png">
   <meta property="og:image:alt" content="Discord Music bot logo">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="Discord Music · Every room in rhythm">
-  <meta name="twitter:description" content="Add reliable YouTube music, smart queues, and interactive controls to your Discord server.">
+  <meta name="twitter:description" content="Add YouTube and Spotify music, smart queues, and one-tap controls to your Discord server.">
   <meta name="twitter:image" content="/assets/logo.png">
   <title>Discord Music · Live</title>
   <link rel="icon" href="/assets/favicon.png" type="image/png" sizes="256x256">
   <link rel="apple-touch-icon" href="/assets/logo.png">
-  <link rel="stylesheet" href="/assets/app.css?v=1.0.5">
-  <script src="/assets/public.js?v=1.0.3" defer></script>
+  <link rel="stylesheet" href="/assets/app.css?v=1.0.6">
+  <script src="/assets/public.js?v=1.0.4" defer></script>
 </head>
 <body class="public-page">
   <div class="ambient ambient-one"></div>
@@ -37,8 +37,7 @@
         <a href="#live">Now playing</a>
         <a href="#servers">Communities</a>
         <a href="#commands">Commands</a>
-        <a href="#invite">Add bot</a>
-        <a class="button button-quiet" href="/login">Admin</a>
+        <a class="button button-quiet" href="/invite" target="_blank" rel="noopener noreferrer">Add bot ↗</a>
       </div>
     </nav>
 
@@ -47,13 +46,13 @@
         <div class="hero-copy">
           <a class="announce" href="#spotify">
             <span class="announce-tag">NEW</span>
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="11" fill="currentColor"/><path d="M6.6 9.1c3.6-1.1 7.6-.8 10.9 1M7.3 12.3c2.9-.8 6-.5 8.6.9M8 15.3c2.2-.5 4.4-.3 6.3.7" fill="none" stroke="#07060b" stroke-width="1.7" stroke-linecap="round"/></svg>
+            <svg viewBox="0 0 24 24" role="img" aria-label="Spotify" focusable="false"><path fill="currentColor" d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>
             <span class="announce-text">Spotify links now play: tracks, albums &amp; playlists</span>
             <span class="announce-arrow" aria-hidden="true">→</span>
           </a>
           <div class="eyebrow"><span class="live-dot"></span><span id="hero-state">Checking the signal</span></div>
           <h1>One bot.<br><span>Every room in rhythm.</span></h1>
-          <p>Follow the music bot in real time—service health, current tracks, activity trends, and the commands that keep the queue moving.</p>
+          <p>See what's playing across servers, check that the bot is online, and learn the commands that keep the music going.</p>
           <div class="hero-actions">
             <a class="button button-primary" href="/invite" target="_blank" rel="noopener noreferrer">Add to Discord ↗</a>
             <a class="button button-quiet" href="#live">See what’s playing</a>
@@ -61,17 +60,17 @@
         </div>
         <div class="signal-card" aria-label="Live bot status">
           <div class="signal-orbit"><div class="signal-core" id="bot-avatar"><img src="/assets/logo.png" alt="Discord Music logo"></div></div>
-          <div class="signal-copy"><span>LIVE SIGNAL</span><strong id="signal-status">Connecting</strong><small id="signal-tag">Discord gateway</small></div>
+          <div class="signal-copy"><span>LIVE SIGNAL</span><strong id="signal-status">Connecting</strong><small id="signal-tag">Music bot</small></div>
           <div class="signal-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
         </div>
       </section>
 
       <section class="metric-grid" aria-label="Service statistics">
-        <article class="metric"><span>Uptime</span><strong id="metric-uptime">—</strong><small>since last deploy</small></article>
+        <article class="metric"><span>Uptime</span><strong id="metric-uptime">—</strong><small>since last restart</small></article>
         <article class="metric"><span>Servers</span><strong id="metric-guilds">—</strong><small id="metric-audience">— listeners in reach</small></article>
         <article class="metric"><span>Live rooms</span><strong id="metric-streams">—</strong><small>playing right now</small></article>
-        <article class="metric"><span>Tracks played</span><strong id="metric-tracks">—</strong><small>this runtime</small></article>
-        <article class="metric"><span>Gateway</span><strong id="metric-ping">—</strong><small>Discord latency</small></article>
+        <article class="metric"><span>Tracks played</span><strong id="metric-tracks">—</strong><small>since last restart</small></article>
+        <article class="metric"><span>Response time</span><strong id="metric-ping">—</strong><small>to Discord</small></article>
       </section>
 
       <section class="section" id="live">
@@ -80,22 +79,22 @@
           <span class="updated" id="last-updated">Waiting for the first update</span>
         </div>
         <div id="public-tracks" class="track-grid">
-          <div class="empty-state"><span>♬</span><strong>The stage is quiet</strong><p>Active tracks will appear here automatically.</p></div>
+          <div class="empty-state"><span>♬</span><strong>The stage is quiet</strong><p>Songs will show up here as soon as someone presses play.</p></div>
         </div>
       </section>
 
       <section class="section">
         <div class="section-heading">
           <div><span class="kicker">PULSE</span><h2>Activity trends</h2></div>
-          <span class="updated">Rolling two-hour window</span>
+          <span class="updated">Last two hours</span>
         </div>
         <div class="chart-grid">
           <article class="chart-card">
-            <div class="chart-title"><div><span>Discord latency</span><strong id="chart-ping-value">—</strong></div><em>milliseconds</em></div>
+            <div class="chart-title"><div><span>Response time</span><strong id="chart-ping-value">—</strong></div><em>milliseconds</em></div>
             <svg class="chart" viewBox="0 0 600 180" preserveAspectRatio="none" role="img" aria-label="Discord latency history"><defs><linearGradient id="ping-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7c5cff" stop-opacity=".4"/><stop offset="1" stop-color="#7c5cff" stop-opacity="0"/></linearGradient></defs><path id="ping-area" class="chart-area" fill="url(#ping-fill)"></path><polyline id="ping-line" class="chart-line"></polyline></svg>
           </article>
           <article class="chart-card">
-            <div class="chart-title"><div><span>Active rooms</span><strong id="chart-stream-value">—</strong></div><em>concurrent streams</em></div>
+            <div class="chart-title"><div><span>Active rooms</span><strong id="chart-stream-value">—</strong></div><em>playing at once</em></div>
             <svg class="chart" viewBox="0 0 600 180" preserveAspectRatio="none" role="img" aria-label="Active stream history"><defs><linearGradient id="stream-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff4fb8" stop-opacity=".35"/><stop offset="1" stop-color="#ff4fb8" stop-opacity="0"/></linearGradient></defs><path id="stream-area" class="chart-area" fill="url(#stream-fill)"></path><polyline id="stream-line" class="chart-line chart-line-pink"></polyline></svg>
           </article>
         </div>
@@ -115,7 +114,7 @@
         <div class="section-heading"><div><span class="kicker">QUICK START</span><h2>Run the room</h2></div><span class="updated">Prefix <code id="command-prefix">!</code></span></div>
         <div class="command-grid">
           <article class="command-feature" id="spotify">
-            <div class="command-feature-head"><span class="announce-tag">NEW</span><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="11" fill="currentColor"/><path d="M6.6 9.1c3.6-1.1 7.6-.8 10.9 1M7.3 12.3c2.9-.8 6-.5 8.6.9M8 15.3c2.2-.5 4.4-.3 6.3.7" fill="none" stroke="#07060b" stroke-width="1.7" stroke-linecap="round"/></svg><strong>Spotify links are here</strong></div>
+            <div class="command-feature-head"><span class="announce-tag">NEW</span><svg viewBox="0 0 24 24" role="img" aria-label="Spotify" focusable="false"><path fill="currentColor" d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg><strong>Spotify links are here</strong></div>
             <code data-command="play <spotify link>">!play &lt;spotify link&gt;</code>
             <p>Paste a Spotify track, album, or playlist link. The bot reads the songs from Spotify and plays the best-matching audio. Albums and playlists queue up to 100 tracks.</p>
           </article>
@@ -124,7 +123,7 @@
           <article><code data-command="playlist <url>">!playlist &lt;url&gt;</code><p>Queue a YouTube playlist, or a Spotify album or playlist.</p></article>
           <article><code data-command="queue">!queue</code><p>See what is coming next.</p></article>
           <article><code data-command="nowplaying">!nowplaying</code><p>Open the live progress card.</p></article>
-          <article><code data-command="seek 1:30">!seek 1:30</code><p>Jump to a specific moment.</p></article>
+          <article><code data-command="previous">!previous</code><p>Go back to the song before this one.</p></article>
           <article><code data-command="loop">!loop</code><p>Cycle song, queue, and off.</p></article>
           <article><code data-command="lyrics">!lyrics</code><p>Find lyrics for the current track.</p></article>
         </div>
@@ -134,12 +133,12 @@
         <div class="invite-copy">
           <span class="kicker">BRING THE VIBE</span>
           <h2>Add Discord Music to your server.</h2>
-          <p>Give every voice channel a polished music setup with YouTube search, playlists, smart queues, lyrics, and controls your members can use right inside Discord.</p>
+          <p>Give every voice channel a polished music setup: search by name, play YouTube and Spotify links, and control the queue with one tap, right inside Discord.</p>
           <ul class="invite-benefits" aria-label="Bot features">
-            <li><span>✓</span> Search songs or play direct links</li>
-            <li><span>✓</span> Queue, seek, loop, and shuffle</li>
-            <li><span>✓</span> Interactive playback controls</li>
-            <li><span>✓</span> Live status and progress dashboard</li>
+            <li><span>✓</span> YouTube and Spotify links, or search by name</li>
+            <li><span>✓</span> Queue, skip, go back, loop, and shuffle</li>
+            <li><span>✓</span> One-tap playback buttons and lyrics</li>
+            <li><span>✓</span> Keeps playing through quick updates</li>
           </ul>
           <div class="hero-actions">
             <a class="button button-primary" href="/invite" target="_blank" rel="noopener noreferrer">Add Discord Music ↗</a>
@@ -155,10 +154,10 @@
         </div>
       </section>
 
-      <aside class="privacy-note"><span>◎</span><div><strong>Public by design, private by default.</strong><p>This page publishes aggregate service health and music titles only. Server identities, channels, command logs, settings, and controls stay inside the admin console.</p></div></aside>
+      <aside class="privacy-note"><span>◎</span><div><strong>Your server stays private.</strong><p>This page only shows server names, song titles, and overall stats. Channels, members, queues, and settings are never shown here.</p></div></aside>
     </main>
 
-    <footer><span class="footer-brand"><img src="/assets/favicon.png" alt="">Discord Music</span><span>Powered by Discord, yt-dlp &amp; Cloudflare Tunnel</span><span class="footer-actions"><a href="/invite" target="_blank" rel="noopener noreferrer">Add bot ↗</a><a href="/login">Admin console →</a></span></footer>
+    <footer><span class="footer-brand"><img src="/assets/favicon.png" alt="">Discord Music</span><span>Made for Discord communities</span><span class="footer-actions"><a href="/invite" target="_blank" rel="noopener noreferrer">Add bot ↗</a><a href="/login">Owner login</a></span></footer>
   </div>
 
   <button class="bug-fab" id="bug-open" type="button" aria-haspopup="dialog" aria-label="Report a bug" hidden>
