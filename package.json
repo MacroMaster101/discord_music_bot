@@ -22,5 +22,10 @@
     "opusscript": "0.0.8",
     "youtube-dl-exec": "^3.1.7",
     "yt-search": "^2.13.1"
+  },
+  "overrides": {
+    "cheerio": {
+      "undici": "^7.29.1"
+    }
   }
 }

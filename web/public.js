@@ -114,6 +114,7 @@
       $('metric-tracks').textContent = formatCount(data.totalSongsPlayed);
       $('metric-ping').textContent = data.ping >= 0 ? `${Math.round(data.ping)} ms` : '—';
       $('last-updated').textContent = `Updated ${new Date(data.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+      $('bug-open').hidden = !data.bugReports;
       renderTracks(data.activeTracks);
       renderServers(data.servers);
     } catch {
@@ -202,6 +203,60 @@
     });
   }, 1000);
 
+  function setupBugReport() {
+    const dialog = $('bug-dialog');
+    const form = $('bug-form');
+    const status = $('bug-status');
+    const submit = $('bug-submit');
+    const message = $('bug-message');
+    const setStatus = (text, kind = '') => {
+      status.textContent = text;
+      status.className = `bug-status ${kind}`.trim();
+    };
+    const close = () => dialog.close();
+
+    $('bug-open').addEventListener('click', () => {
+      setStatus('');
+      dialog.showModal();
+      $('bug-email').focus();
+    });
+    $('bug-cancel').addEventListener('click', close);
+    $('bug-dismiss').addEventListener('click', close);
+    dialog.addEventListener('click', (event) => { if (event.target === dialog) close(); });
+    message.addEventListener('input', () => {
+      $('bug-count').textContent = `${message.value.length} / 2000`;
+    });
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const email = $('bug-email').value.trim();
+      const text = message.value.trim();
+      if (!$('bug-email').checkValidity() || !email) return setStatus('Enter a valid email address so we can reply.', 'error');
+      if (text.length < 10) return setStatus('Describe the bug in at least 10 characters.', 'error');
+
+      submit.disabled = true;
+      setStatus('Sending…');
+      try {
+        const response = await fetch('/api/public/bug-report', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, message: text, website: $('bug-website').value }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || 'Could not send the report. Please try again later.');
+        form.reset();
+        $('bug-count').textContent = '0 / 2000';
+        setStatus('Thanks! Your report was sent.', 'success');
+        setTimeout(() => { if (dialog.open) close(); }, 1800);
+      } catch (err) {
+        setStatus(err.message, 'error');
+      } finally {
+        submit.disabled = false;
+      }
+    });
+  }
+
+  setupBugReport();
   refreshStatus();
   refreshHistory();
   setInterval(refreshStatus, 10_000);

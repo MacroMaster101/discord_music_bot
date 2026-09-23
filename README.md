@@ -45,13 +45,13 @@ A premium, self-hostable Discord music player featuring a glassmorphic web dashb
 Commands use your server's prefix (default: `!`).
 
 ### 🎶 Playback
-- `!play <query / URL>` (`!p`) — Search and stream a song, or append to queue.
+- `!play <query / URL>` (`!p`) — Search and stream a song, or append to queue. Only YouTube links are accepted; any other URL is rejected.
 - `!search <query>` (`!sr`) — Search YouTube and choose from the top 5.
 - `!playlist <URL>` (`!pl`) — Load and queue a full YouTube playlist.
 - `!pause` / `!resume` (`!unpause`) — Pause / resume.
 - `!skip` (`!s`) — Skip the current song.
 - `!seek <time>` — Jump to a timestamp (e.g. `1:30` or `90`).
-- `!stop` (`!dc`) — Clear the queue and disconnect.
+- `!stop` (`!dc`, `!disconnect`) — Clear the queue and disconnect.
 - `!nowplaying` (`!np`) — Show the current track with control buttons.
 - `!lyrics` (`!ly`) — Display lyrics for the current song.
 
@@ -64,7 +64,8 @@ Commands use your server's prefix (default: `!`).
 
 ### ⚙️ Settings
 - `!volume <0-100>` (`!vol`) — Read or set playback volume.
-- `!loop [off | song | queue]` — Cycle loop mode.
+- `!loop [off | song | queue]` (`!repeat`) — Cycle loop mode.
+- `!help` (`!h`) — Show the command guide.
 
 ---
 
@@ -80,6 +81,9 @@ Copy `.env.example` to `.env` and fill in:
 | `DASHBOARD_BIND_ADDRESS` | optional | Host bind address for port `8080`; use `127.0.0.1` with Cloudflare Tunnel. |
 | `COMPOSE_PROFILES` | tunnel only | Set to `tunnel` to start the `cloudflared` sidecar. |
 | `TUNNEL_TOKEN` | tunnel only | Raw token for a remotely-managed Cloudflare Tunnel. Never commit it. |
+| `CF_ACCESS_TEAM_DOMAIN` | recommended | Your Zero Trust team domain, e.g. `myteam.cloudflareaccess.com`. With `CF_ACCESS_AUD`, enables Access JWT verification. |
+| `CF_ACCESS_AUD` | recommended | The Access application's **Application Audience (AUD) Tag**. When both are unset, Access headers are trusted without verification (a warning is logged). |
+| `FORMSPREE_FORM_ID` | optional | Enables the public **Report a bug** button. Reports are relayed server-side to this [Formspree](https://formspree.io) form, which emails them to the form owner. The ID is the part after `/f/` in the form endpoint. |
 | `BGUTIL_BASE_URL` | optional | PO-token provider URL (defaults to the compose sidecar `http://bgutil-provider:4416`). |
 | `YTDLP_COOKIES_PATH` / `YTDLP_COOKIES_BASE64` | optional | YouTube cookies (path or base64) to unlock login-restricted videos. |
 
@@ -122,7 +126,8 @@ The dashboard is served on port `8080`. Direct IP access should be used only dur
    - `music.example.com/api/admin/*`
 5. Remove any existing blank-path/whole-host destination for your hostname; otherwise Cloudflare will also require login for the public `/` page and `/api/public/*` APIs.
 6. Use an **Allow** policy containing only exact administrator email addresses. Do not use `Everyone`. Keep the application session short enough for your team (for example, 24 hours).
-7. Add the raw tunnel token as the GitHub Actions secret `CLOUDFLARE_TUNNEL_TOKEN`, then deploy `main`.
+7. Copy the Access application's **Application Audience (AUD) Tag** and your team domain into the server `.env` as `CF_ACCESS_AUD` and `CF_ACCESS_TEAM_DOMAIN`. The bot then verifies each Access JWT's signature, audience, issuer, and expiry instead of trusting request headers.
+8. Add the raw tunnel token as the GitHub Actions secret `CLOUDFLARE_TUNNEL_TOKEN`, then deploy `main`.
 
 Cloudflare path wildcards do not include the parent path, which is why both `admin` and `admin/*` are listed. The tunnel route should use origin service URL `http://bot:8080`; public HTTPS terminates at Cloudflare, so the private Docker-network hop correctly remains HTTP.
 
@@ -135,10 +140,14 @@ The workflow stores the token only in the EC2 `.env`, enables the `tunnel` Compo
 | `/` | Public | Aggregate service status, active song titles/progress, graphs, and commands |
 | `/api/public/status` | Public | Public-safe current snapshot |
 | `/api/public/history` | Public | In-memory aggregate chart history |
+| `/api/public/bug-report` | Public (POST) | Bug report relay to Formspree; same-origin JSON only, honeypot-filtered, 3 reports per IP per 10 minutes |
 | `/healthz` | Public/monitor | Minimal bot readiness result |
 | `/invite` | Public | Discord server-install redirect with the bot's required permissions |
 | `/admin/` | Cloudflare Access admins | Admin user interface |
 | `/api/admin/*` | Cloudflare Access admin or recovery `ADMIN_TOKEN` | Guilds, controls, queues, logs, telemetry, Discord presence, and settings CRUD |
+| `/login` | Public | Sign-in chooser: Cloudflare Access or recovery token |
+| `/console/` | `ADMIN_TOKEN` holders | Same admin UI on a path Access does not gate, for token sign-in |
+| `/console/api/*` | `ADMIN_TOKEN` (or verified Access identity) | Mirror of `/api/admin/*`; failed token attempts are rate-limited per client IP (6 per 5 min, then a 15-minute lockout) |
 
 The public payload is covered by an automated privacy regression test. Access-authenticated tunnel requests are recognized from Cloudflare's identity and assertion headers. The optional recovery token is sent as a bearer token and retained only in browser `sessionStorage`, so closing the tab/session clears it. Keep the origin bound to localhost and reachable only through the Tunnel.
 
@@ -201,7 +210,7 @@ discord_music_bot/
 ├── Dockerfile            # Bot image: ffmpeg, yt-dlp, bgutil plugin
 ├── docker-compose.yml    # bot + bgutil-provider + optional tunnel sidecar
 ├── .env.example          # Environment variable template
-├── .github/workflows/    # CI/CD deploy workflow
+├── .github/workflows/    # CI (verify on PRs) + deploy to EC2 on push to main
 ├── .gitignore
 └── .dockerignore
 ```

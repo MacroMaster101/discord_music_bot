@@ -29,8 +29,9 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
    git clone https://github.com/<your-username>/discord_music_bot.git
    cd discord_music_bot
    ```
-2. **Create a topic branch**:
+2. **Create a topic branch from `dev`**:
    ```bash
+   git checkout dev
    git checkout -b feat/your-feature-name
    # or
    git checkout -b fix/your-bug-fix
@@ -59,8 +60,15 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
    ```
 7. **Push to your fork and open a Pull Request**:
    - Push to your branch: `git push origin feat/your-feature-name`
-   - Open a PR against `main` on the original repository.
+   - Open a PR against `dev` on the original repository.
    - Describe what changed and why.
+
+---
+
+## Branches
+
+- `dev` is the integration branch. All feature and fix PRs target `dev`.
+- `main` is production: every push to `main` deploys to the live bot. It is protected by a ruleset (changes only through pull requests, the `test` CI check must pass, linear history, no force-push or deletion), and is updated by PRs from `dev`.
 
 ---
 
@@ -70,6 +78,7 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
 - **Privacy & Security**:
   - Keep public endpoints strictly sanitized (`/api/public/*`).
   - Keep admin endpoints authenticated via Cloudflare Access or `ADMIN_TOKEN`.
+  - Only YouTube URLs may reach `yt-dlp`/`ffmpeg`; never pass arbitrary user URLs or text that could be read as a command-line flag.
 - **Testing**:
   - Add or update unit tests in `test/server.test.js` when modifying API payloads or authentication logic.
 - **Documentation**:

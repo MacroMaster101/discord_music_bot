@@ -120,7 +120,6 @@ function getYtdlpBaseOptions(playerClientOverride) {
   // Override via BGUTIL_BASE_URL if the service name/port differs.
   const bgutilBaseUrl = process.env.BGUTIL_BASE_URL || 'http://bgutil-provider:4416';
   const opts = {
-    noCheckCertificates: true,
     noWarnings: true,
     noPlaylist: true,
     noCheckFormats: true,
@@ -602,8 +601,11 @@ async function execute(message, serverQueue, args) {
 
   let song;
   try {
-    if (isUrl(searchText)) {
+    if (isYouTubeUrl(searchText)) {
       song = await getSongFromUrl(searchText);
+    } else if (isUrl(searchText)) {
+      await statusMsg.edit('❌ Only YouTube links are supported. Try a song name instead.').catch(() => {});
+      return;
     } else {
       const searchResult = await ytSearch(searchText);
       const video = searchResult.videos?.[0];
@@ -830,6 +832,27 @@ function isUrl(input) {
   }
 }
 
+// Only YouTube is fetched. Handing arbitrary URLs to yt-dlp/ffmpeg would let any
+// Discord user make the host request internal addresses (cloud metadata, the
+// bgutil sidecar, localhost) and would let a leading "-" be read as a yt-dlp flag.
+const YOUTUBE_HOSTS = new Set([
+  'youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be',
+]);
+
+function isYouTubeUrl(input) {
+  try {
+    const url = new URL(input);
+    return (url.protocol === 'https:' || url.protocol === 'http:')
+      && YOUTUBE_HOSTS.has(url.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function assertYouTubeUrl(input) {
+  if (!isYouTubeUrl(input)) throw new Error('Only YouTube links are supported.');
+}
+
 function normalizeMediaUrl(input) {
   const url = new URL(input);
 
@@ -852,6 +875,7 @@ function normalizeMediaUrl(input) {
 }
 
 async function getSongFromUrl(input) {
+  assertYouTubeUrl(input);
   const url = normalizeMediaUrl(input);
   const clientChains = getPlayerClientChains();
 
@@ -1159,6 +1183,7 @@ function getPublicPlayErrorMessage(reason) {
 }
 
 async function getAudioUrl(url) {
+  assertYouTubeUrl(url);
   const clientChains = getPlayerClientChains();
 
   for (let i = 0; i < clientChains.length; i++) {
@@ -1255,37 +1280,21 @@ function advanceQueue(guildId, serverQueue, delayNext, errorReason = null) {
 }
 
 function getPresenceActivities() {
-
-  // Scan the active queue map dynamically to check if there is an active stream
-  let activeQueue = null;
+  // Presence is global across every server the bot is in, so it must never
+  // show one server's song, queue, or voice room. Only aggregate counts here;
+  // per-server details stay behind !np / !queue in that server.
+  let activeServers = 0;
   for (const q of queue.values()) {
-    if (q.songs.length > 0 && !q.stopped) {
-      activeQueue = q;
-      break;
-    }
+    if (q.songs.length > 0 && !q.stopped) activeServers += 1;
   }
 
-  if (activeQueue && activeQueue.songs[0]) {
-    const song = activeQueue.songs[0];
-    const songTitle = song.title;
-    const title = songTitle.length > 50
-      ? songTitle.slice(0, 47) + '...'
-      : songTitle;
-
-    const queueCount = activeQueue.songs.length;
-    const vcName = activeQueue.voiceChannel?.name || 'Voice Room';
-
-    // Use the song's YouTube URL for Streaming type (purple LIVE badge + clickable link)
-    const streamUrl = song.url && song.url.includes('youtube.com')
-      ? song.url
-      : 'https://www.youtube.com';
-
+  if (activeServers > 0) {
+    const servers = `${activeServers} server${activeServers === 1 ? '' : 's'}`;
     return [
-      { name: `🎶 ${title}`, type: ActivityType.Streaming, url: streamUrl },
-      { name: `📋 Queue | ${queueCount} track(s)`, type: ActivityType.Streaming, url: streamUrl },
-      { name: `🔊 Room | ${vcName}`, type: ActivityType.Streaming, url: streamUrl },
-      { name: `🔥 Dropping Beats Non-Stop`, type: ActivityType.Streaming, url: streamUrl },
-      { name: `!np 🔎 for info`, type: ActivityType.Streaming, url: streamUrl },
+      { name: `🎶 Playing music in ${servers}`, type: ActivityType.Listening },
+      { name: `!np 🔎 | What's playing here`, type: ActivityType.Listening },
+      { name: `!queue 📋 | This server's queue`, type: ActivityType.Watching },
+      { name: `🔥 Dropping Beats Non-Stop`, type: ActivityType.Playing },
     ];
   }
 
@@ -1948,7 +1957,7 @@ async function searchCommand(message, args) {
 async function playlistCommand(message, serverQueue, args) {
   const PREFIX = getPrefix(message.guild.id);
   const url = args[0];
-  if (!url || !isUrl(url)) return message.reply(`❌ Usage: \`${PREFIX}playlist <youtube playlist url>\``);
+  if (!url || !isYouTubeUrl(url)) return message.reply(`❌ Usage: \`${PREFIX}playlist <youtube playlist url>\``);
 
   const voiceChannel = message.member?.voice?.channel;
   if (!voiceChannel) return message.reply('❌ You need to be in a voice channel!');
@@ -2134,7 +2143,25 @@ async function addCore(guildId, query) {
   const sq = queue.get(guildId);
   if (!sq) return { ok: false, error: 'Start playback in Discord first (no active session).' };
   if (!query || !String(query).trim()) return { ok: false, error: 'Empty query.' };
-  const song = await getSongFromUrl(String(query).trim());
+  const text = String(query).trim();
+  let song;
+  if (isYouTubeUrl(text)) {
+    song = await getSongFromUrl(text);
+  } else if (isUrl(text)) {
+    return { ok: false, error: 'Only YouTube links are supported.' };
+  } else {
+    const video = (await ytSearch(text)).videos?.[0];
+    if (video) {
+      song = {
+        id: createSongId(),
+        title: video.title,
+        url: video.url,
+        streamUrl: null,
+        duration: video.seconds || null,
+        thumbnail: video.thumbnail || null,
+      };
+    }
+  }
   if (!song) return { ok: false, error: 'Could not find that song.' };
   sq.songs.push(song);
   return { ok: true, title: song.title };
