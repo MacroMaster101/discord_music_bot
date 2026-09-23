@@ -2,6 +2,11 @@
 
 All notable changes to J4FN Music, newest first.
 
+## [Unreleased]
+
+### New
+- **Slash commands.** Every command also works as a `/` command (`/play`, `/skip`, `/previous`, `/queue`, `/volume`, ...), with options shown as you type. They appear in the bot's profile under **Commands**. `!` commands keep working.
+
 ## [1.1.1] - 2026-09-23
 
 ### New

@@ -6,8 +6,8 @@
   "license": "MIT",
   "scripts": {
     "start": "node index.js",
-    "check": "node --check index.js && node --check server.js && node --check settings.js && node --check spotify.js && node --check resume.js && node --check web/public.js && node --check web/admin.js",
-    "test": "node test/server.test.js && node test/spotify.test.js && node test/resume.test.js"
+    "check": "node --check index.js && node --check server.js && node --check settings.js && node --check spotify.js && node --check resume.js && node --check slash-commands.js && node --check web/public.js && node --check web/admin.js",
+    "test": "node test/server.test.js && node test/spotify.test.js && node test/resume.test.js && node test/slash-commands.test.js"
   },
   "engines": {
     "node": ">=22.12.0"
