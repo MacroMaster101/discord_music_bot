@@ -5,6 +5,9 @@ const os = require('os');
 const path = require('path');
 const { startDashboardServer } = require('./server');
 const settings = require('./settings');
+const {
+  SpotifyError, createSpotifyClient, isSpotifyLink, parseSpotifyLink, pickBestYouTubeMatch, youTubeQueryFor,
+} = require('./spotify');
 
 settings.load();
 
@@ -65,6 +68,11 @@ function getAutoPauseWhenAlone(guildId) { return settings.get(guildId, 'autoPaus
 const YTDLP_COOKIES_PATH = process.env.YTDLP_COOKIES_PATH || process.env.YTDLP_COOKIES;
 const YTDLP_COOKIES_BASE64 = process.env.YTDLP_COOKIES_BASE64;
 const YTDLP_PO_TOKEN = process.env.YTDLP_PO_TOKEN;
+const PRESENCE_STREAM_URL = process.env.PRESENCE_STREAM_URL || 'https://www.twitch.tv/discord';
+const spotify = createSpotifyClient({
+  clientId: process.env.SPOTIFY_CLIENT_ID,
+  clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
+});
 const VOICE_STATUS_ROUTE = (channelId) => `/channels/${channelId}/voice-status`;
 let nextSongId = 1;
 let tempCookiesPath = null;
@@ -600,8 +608,21 @@ async function execute(message, serverQueue, args) {
   const statusMsg = await message.reply('🔍 **Searching...**');
 
   let song;
+  let extraSongs = [];
+  let collectionName = null;
   try {
-    if (isYouTubeUrl(searchText)) {
+    if (isSpotifyLink(searchText)) {
+      try {
+        const result = await getSongsFromSpotify(searchText);
+        [song, ...extraSongs] = result.songs;
+        collectionName = result.name;
+      } catch (err) {
+        if (!(err instanceof SpotifyError)) throw err;
+        console.warn('Spotify lookup failed:', err.message);
+        await statusMsg.edit(`❌ ${err.userMessage}`).catch(() => {});
+        return;
+      }
+    } else if (isYouTubeUrl(searchText)) {
       song = await getSongFromUrl(searchText);
     } else if (isUrl(searchText)) {
       await statusMsg.edit('❌ Only YouTube links are supported. Try a song name instead.').catch(() => {});
@@ -628,6 +649,15 @@ async function execute(message, serverQueue, args) {
     return;
   }
 
+  // Album links queue their remaining tracks once the first one is handled.
+  const queueExtras = async () => {
+    const q = queue.get(guildId);
+    if (!q || !extraSongs.length) return;
+    q.songs.push(...extraSongs);
+    maybePrefetchNextSong(q);
+    await message.channel.send(`💿 Queued **${extraSongs.length}** more song(s) from **${collectionName || 'the album'}**.`).catch(() => {});
+  };
+
   // Re-read AFTER awaits to pick up state changes during search
   serverQueue = queue.get(guildId);
 
@@ -648,7 +678,8 @@ async function execute(message, serverQueue, args) {
         await statusMsg.edit('❌ Bot left before your song could be queued.').catch(() => {});
         return;
       }
-      return await appendAndMaybePlay(guildId, serverQueue, song, statusMsg);
+      await appendAndMaybePlay(guildId, serverQueue, song, statusMsg);
+      return queueExtras();
     }
 
     inflightPlay.add(guildId);
@@ -657,11 +688,12 @@ async function execute(message, serverQueue, args) {
     } finally {
       inflightPlay.delete(guildId);
     }
-    return;
+    return queueExtras();
   }
 
   // Warm path: queue exists, just append
-  return await appendAndMaybePlay(guildId, serverQueue, song, statusMsg);
+  await appendAndMaybePlay(guildId, serverQueue, song, statusMsg);
+  return queueExtras();
 }
 
 // Wait up to timeoutMs for queue to exist for guildId
@@ -874,6 +906,67 @@ function normalizeMediaUrl(input) {
   return input;
 }
 
+function songFromSpotifyTrack(track) {
+  const artists = track.artists.join(', ');
+  return {
+    id: createSongId(),
+    title: artists ? `${artists} - ${track.title}` : track.title,
+    url: track.spotifyUrl,
+    source: 'spotify',
+    spotify: track,
+    youtubeUrl: null,
+    streamUrl: null,
+    duration: track.durationMs ? Math.round(track.durationMs / 1000) : null,
+    thumbnail: track.image,
+  };
+}
+
+// Reads a Spotify track or album link into queueable songs. Playlists cannot be
+// read by bots since Spotify's February 2026 API changes, so they are refused
+// with an explanation. Throws SpotifyError with a user-facing message.
+async function getSongsFromSpotify(input) {
+  const link = parseSpotifyLink(input);
+  if (!link) {
+    throw new SpotifyError('Unsupported Spotify link', {
+      userMessage: 'Only Spotify **track** and **album** links are supported. In Spotify use "Share → Copy link".',
+    });
+  }
+  if (link.type === 'playlist') {
+    throw new SpotifyError('Spotify playlists are not readable', {
+      userMessage: 'Spotify no longer lets bots read playlists. Use a Spotify **track** or **album** link, or a YouTube playlist.',
+    });
+  }
+  if (!spotify.configured) {
+    throw new SpotifyError('Spotify credentials are not configured', {
+      userMessage: 'Spotify links are not enabled on this bot. Use a song name or a YouTube link.',
+    });
+  }
+  if (link.type === 'track') {
+    return { name: null, songs: [songFromSpotifyTrack(await spotify.getTrack(link.id))] };
+  }
+  const album = await spotify.getAlbum(link.id);
+  if (!album.tracks.length) throw new SpotifyError('Empty album', { userMessage: 'That Spotify album has no playable tracks.' });
+  return { name: album.name, songs: album.tracks.map(songFromSpotifyTrack) };
+}
+
+// Spotify songs are matched to a YouTube video only when they are about to play
+// (or be prefetched), so queueing a whole album stays fast.
+function getPlayableUrl(song) {
+  if (song.source !== 'spotify') return Promise.resolve(song.url);
+  if (song.youtubeUrl) return Promise.resolve(song.youtubeUrl);
+  if (!song.resolvingYouTube) {
+    song.resolvingYouTube = (async () => {
+      const results = await ytSearch(youTubeQueryFor(song.spotify));
+      const video = pickBestYouTubeMatch(song.spotify, results.videos);
+      if (!video) throw new Error('No YouTube match found for this Spotify track');
+      song.youtubeUrl = video.url;
+      if (video.seconds) song.duration = video.seconds;
+      return video.url;
+    })().finally(() => { song.resolvingYouTube = null; });
+  }
+  return song.resolvingYouTube;
+}
+
 async function getSongFromUrl(input) {
   assertYouTubeUrl(input);
   const url = normalizeMediaUrl(input);
@@ -984,7 +1077,8 @@ function maybePrefetchNextSong(serverQueue) {
   if (!nextSong || nextSong.prefetchedAudioUrl || nextSong.isPrefetching) return;
 
   nextSong.isPrefetching = true;
-  getAudioUrl(nextSong.url)
+  getPlayableUrl(nextSong)
+    .then(getAudioUrl)
     .then((url) => {
       if (url) {
         nextSong.prefetchedAudioUrl = url;
@@ -1024,7 +1118,7 @@ async function playSong(guildId, song, seekSeconds = 0) {
     const isPrefetchFresh = song.prefetchedAudioUrl && (Date.now() - (song.prefetchedAt || 0) < 3 * 3600 * 1000);
     const audioUrl = (isPrefetchFresh && seekSeconds === 0)
       ? song.prefetchedAudioUrl
-      : await getAudioUrl(song.url);
+      : await getAudioUrl(await getPlayableUrl(song));
 
     if (!audioUrl) {
       throw new Error('yt-dlp did not return an audio URL');
@@ -1167,6 +1261,9 @@ function getPublicPlayErrorMessage(reason) {
     return 'That video is blocked for playback.';
   }
 
+  if (message.includes('no youtube match')) {
+    return 'No matching YouTube video was found for that Spotify track.';
+  }
   if (message.includes('did not return an audio url') || message.includes('requested format is not available')) {
     return 'I could not get a playable audio stream for that track.';
   }
@@ -1290,11 +1387,15 @@ function getPresenceActivities() {
 
   if (activeServers > 0) {
     const servers = `${activeServers} server${activeServers === 1 ? '' : 's'}`;
+    // Streaming is what gives the purple LIVE badge, and Discord only honours it
+    // for a Twitch channel or YouTube video URL. The URL is deliberately not the
+    // song: presence is visible to every server the bot is in.
+    const streamUrl = PRESENCE_STREAM_URL;
     return [
-      { name: `🎶 Playing music in ${servers}`, type: ActivityType.Listening },
-      { name: `!np 🔎 | What's playing here`, type: ActivityType.Listening },
-      { name: `!queue 📋 | This server's queue`, type: ActivityType.Watching },
-      { name: `🔥 Dropping Beats Non-Stop`, type: ActivityType.Playing },
+      { name: `🎶 Playing music in ${servers}`, type: ActivityType.Streaming, url: streamUrl },
+      { name: `!np 🔎 | What's playing here`, type: ActivityType.Streaming, url: streamUrl },
+      { name: `!queue 📋 | This server's queue`, type: ActivityType.Streaming, url: streamUrl },
+      { name: `🔥 Dropping Beats Non-Stop`, type: ActivityType.Streaming, url: streamUrl },
     ];
   }
 
@@ -1723,9 +1824,9 @@ function sendHelp(message) {
       {
         name: '🎶  Playback',
         value: [
-          `\`${PREFIX}play <song>\` *(p)* — Play a song by name or URL`,
+          `\`${PREFIX}play <song>\` *(p)* — Play a song by name, YouTube link, or Spotify track/album link`,
           `\`${PREFIX}search <query>\` *(sr)* — Pick from top 5 results`,
-          `\`${PREFIX}playlist <url>\` *(pl)* — Add a YouTube playlist`,
+          `\`${PREFIX}playlist <url>\` *(pl)* — Add a YouTube playlist or Spotify album`,
           `\`${PREFIX}pause\` / \`${PREFIX}resume\` — Pause / resume`,
           `\`${PREFIX}skip\` *(s)* — Skip to the next song`,
           `\`${PREFIX}seek <time>\` — Jump to a position (\`1:30\`)`,
@@ -1957,7 +2058,8 @@ async function searchCommand(message, args) {
 async function playlistCommand(message, serverQueue, args) {
   const PREFIX = getPrefix(message.guild.id);
   const url = args[0];
-  if (!url || !isYouTubeUrl(url)) return message.reply(`❌ Usage: \`${PREFIX}playlist <youtube playlist url>\``);
+  if (url && isSpotifyLink(url)) return execute(message, serverQueue, [url]);
+  if (!url || !isYouTubeUrl(url)) return message.reply(`❌ Usage: \`${PREFIX}playlist <youtube playlist url | spotify album url>\``);
 
   const voiceChannel = message.member?.voice?.channel;
   if (!voiceChannel) return message.reply('❌ You need to be in a voice channel!');
@@ -2145,7 +2247,17 @@ async function addCore(guildId, query) {
   if (!query || !String(query).trim()) return { ok: false, error: 'Empty query.' };
   const text = String(query).trim();
   let song;
-  if (isYouTubeUrl(text)) {
+  if (isSpotifyLink(text)) {
+    try {
+      const { songs } = await getSongsFromSpotify(text);
+      sq.songs.push(...songs);
+      maybePrefetchNextSong(sq);
+      return { ok: true, title: songs.length === 1 ? songs[0].title : `${songs.length} songs` };
+    } catch (err) {
+      if (err instanceof SpotifyError) return { ok: false, error: err.userMessage.replace(/\*\*/g, '') };
+      throw err;
+    }
+  } else if (isYouTubeUrl(text)) {
     song = await getSongFromUrl(text);
   } else if (isUrl(text)) {
     return { ok: false, error: 'Only YouTube links are supported.' };

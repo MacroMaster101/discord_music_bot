@@ -17,6 +17,7 @@ A premium, self-hostable Discord music player featuring a glassmorphic web dashb
 - 🎵 **Advanced Playback** — Play via search query or direct URL (`youtube.com`, `youtu.be`, `/shorts/`, `/live/`).
 - 🔍 **Interactive Search** — `!search` lets you pick from the top 5 YouTube results with Discord buttons.
 - 📂 **Playlist Handler** — Queue full YouTube playlists via `!playlist`.
+- 🟢 **Spotify Links** — Paste a Spotify track or album link; the bot reads the song details from Spotify and plays the matching YouTube audio.
 - 🎤 **Lyrics Lookup** — `!lyrics` fetches lyrics for the current song.
 - 🎛️ **In-Chat Controls** — Tap message buttons to pause, skip, seek, adjust volume, and view the queue.
 - 🤖 **Playback Resilience** — Node JS runtime + an automatic **PO-token provider** sidecar, player-client fallback chains, and optional YouTube cookies for restricted playback environments.
@@ -45,9 +46,9 @@ A premium, self-hostable Discord music player featuring a glassmorphic web dashb
 Commands use your server's prefix (default: `!`).
 
 ### 🎶 Playback
-- `!play <query / URL>` (`!p`) — Search and stream a song, or append to queue. Only YouTube links are accepted; any other URL is rejected.
+- `!play <query / URL>` (`!p`) — Search and stream a song, or append to queue. Accepts YouTube links and Spotify track/album links; any other URL is rejected.
 - `!search <query>` (`!sr`) — Search YouTube and choose from the top 5.
-- `!playlist <URL>` (`!pl`) — Load and queue a full YouTube playlist.
+- `!playlist <URL>` (`!pl`) — Load and queue a full YouTube playlist or Spotify album.
 - `!pause` / `!resume` (`!unpause`) — Pause / resume.
 - `!skip` (`!s`) — Skip the current song.
 - `!seek <time>` — Jump to a timestamp (e.g. `1:30` or `90`).
@@ -83,6 +84,7 @@ Copy `.env.example` to `.env` and fill in:
 | `TUNNEL_TOKEN` | tunnel only | Raw token for a remotely-managed Cloudflare Tunnel. Never commit it. |
 | `CF_ACCESS_TEAM_DOMAIN` | recommended | Your Zero Trust team domain, e.g. `myteam.cloudflareaccess.com`. With `CF_ACCESS_AUD`, enables Access JWT verification. |
 | `CF_ACCESS_AUD` | recommended | The Access application's **Application Audience (AUD) Tag**. When both are unset, Access headers are trusted without verification (a warning is logged). |
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | optional | Enables Spotify track and album links. Create an app at the [Spotify developer dashboard](https://developer.spotify.com/dashboard). Since February 2026 the app owner needs Spotify Premium, and bots can no longer read playlists. |
 | `FORMSPREE_FORM_ID` | optional | Enables the public **Report a bug** button. Reports are relayed server-side to this [Formspree](https://formspree.io) form, which emails them to the form owner. The ID is the part after `/f/` in the form endpoint. |
 | `BGUTIL_BASE_URL` | optional | PO-token provider URL (defaults to the compose sidecar `http://bgutil-provider:4416`). |
 | `YTDLP_COOKIES_PATH` / `YTDLP_COOKIES_BASE64` | optional | YouTube cookies (path or base64) to unlock login-restricted videos. |
@@ -181,6 +183,18 @@ npm test
 
 ---
 
+## 🟢 Spotify Links
+
+Spotify does not allow its audio to be streamed by bots, so the bot uses Spotify only for song details and plays the matching YouTube audio:
+
+1. `!play https://open.spotify.com/track/…` (or an album link, also accepted by `!playlist`).
+2. The bot reads the title, artists, and length from the Spotify Web API (client-credentials, no user login).
+3. Just before each song plays, it searches YouTube for "artist title" and picks the result closest in length, skipping live/cover/remix versions the title doesn't ask for.
+
+Albums queue up to 100 tracks. **Playlist links are not supported**: since Spotify's February 2026 Web API changes, playlist contents are only readable by the playlist's owner. Occasionally the YouTube match may be a different recording of the same song.
+
+---
+
 ## 🍪 Playback Authentication & PO Tokens 🛡️
 
 Modern `yt-dlp` needs a JavaScript runtime and, on datacenter IPs, Proof-of-Origin (PO) tokens to satisfy YouTube's "confirm you're not a bot" checks. The Docker image handles both automatically:
@@ -204,8 +218,9 @@ discord_music_bot/
 ├── index.js              # Bot core: commands, playback, queue, control cores, buttons
 ├── server.js             # Dashboard HTTP server: telemetry + control API + UI
 ├── settings.js           # Per-guild + global settings manager (JSON-backed)
+├── spotify.js            # Spotify link parsing, Web API client, YouTube matching
 ├── web/                  # Public status and protected admin dashboard assets
-├── test/                 # Dashboard auth/privacy/API regression tests
+├── test/                 # Dashboard auth/privacy/API and Spotify tests
 ├── package.json          # Dependencies
 ├── Dockerfile            # Bot image: ffmpeg, yt-dlp, bgutil plugin
 ├── docker-compose.yml    # bot + bgutil-provider + optional tunnel sidecar
