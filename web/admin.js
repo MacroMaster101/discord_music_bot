@@ -108,7 +108,7 @@
             <label class="volume-control">VOL <input type="range" min="0" max="200" value="${Number(track.volume || 0)}" data-action="volume"><span>${Number(track.volume || 0)}%</span></label>
           </div>
           ${queue ? `<div class="queue-admin">${queue}</div><button class="control danger" type="button" data-action="clear">Clear upcoming</button>` : ''}
-          <form class="add-track-form"><input name="query" placeholder="YouTube URL or song search" autocomplete="off" required><button class="control primary" type="submit">Add to queue</button></form>
+          <form class="add-track-form"><input name="query" placeholder="Song search, YouTube or Spotify link" autocomplete="off" required><button class="control primary" type="submit">Add to queue</button></form>
         </div>
       </article>`;
     }).join('');
