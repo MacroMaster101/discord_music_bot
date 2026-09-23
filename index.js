@@ -475,14 +475,17 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   if (interaction.customId === 'music_skip') {
+    if (!hasNextSong(serverQueue)) {
+      return interaction.reply({ content: '❌ There is no next song in the queue.', ephemeral: true });
+    }
     skipQueue(serverQueue);
-    return interaction.reply('⏭️ Skipped!');
+    return interaction.reply('⏭️ Next song!');
   }
 
   if (interaction.customId === 'music_prev') {
     const result = previousCore(interaction.guild.id);
     if (!result.ok) return interaction.reply({ content: `❌ ${result.error}`, ephemeral: true });
-    return interaction.reply(result.restarted ? '⏮️ Restarted the current song.' : `⏮️ Back to **${result.title}**`);
+    return interaction.reply(`⏮️ Back to **${result.title}**`);
   }
 
   if (interaction.customId === 'music_stop') {
@@ -1121,6 +1124,11 @@ async function playSong(guildId, song, seekSeconds = 0) {
     // A monotonic token is race-free where a boolean "restarting" flag was not.
     serverQueue.playToken = (serverQueue.playToken || 0) + 1;
     const myToken = serverQueue.playToken;
+    // Retire the old stream BEFORE killing it. The replacement takes seconds to
+    // resolve, and if the killed stream's Idle event still matched the live
+    // resource it would be treated as "song finished" and advance the queue,
+    // dropping the song being restarted/seeked (a lone song would stop).
+    serverQueue.currentResource = null;
     cleanupCurrentProcess(serverQueue);
     serverQueue.currentSongId = song.id;
     serverQueue.advancingSongId = null;
@@ -1706,10 +1714,17 @@ function nowPlayingComponents(serverQueue) {
     new ButtonBuilder().setCustomId('np_seek:10').setLabel('10s ⏩').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('np_seek:30').setLabel('30s ⏩').setStyle(ButtonStyle.Secondary),
   );
-  // Row 2: track navigation & playback toggles
-  const playbackRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('music_prev').setLabel('⏮️ Previous').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('music_skip').setLabel('⏭️ Skip').setStyle(ButtonStyle.Primary),
+  // Row 2: track navigation & playback toggles. Previous/Next only appear when
+  // there is a song to go to (the Now Playing ticker refreshes them as the
+  // queue changes).
+  const playbackRow = new ActionRowBuilder();
+  if (hasPreviousSong(serverQueue)) {
+    playbackRow.addComponents(new ButtonBuilder().setCustomId('music_prev').setLabel('⏮️ Previous').setStyle(ButtonStyle.Primary));
+  }
+  if (hasNextSong(serverQueue)) {
+    playbackRow.addComponents(new ButtonBuilder().setCustomId('music_skip').setLabel('⏭️ Next').setStyle(ButtonStyle.Primary));
+  }
+  playbackRow.addComponents(
     new ButtonBuilder().setCustomId('np_loop').setLabel(loopLabel).setStyle(loopStyle),
     new ButtonBuilder().setCustomId('np_shuffle').setLabel('🔀 Shuffle').setStyle(ButtonStyle.Secondary),
   );
@@ -2203,6 +2218,16 @@ function restartCore(guildId) {
 
 const HISTORY_LIMIT = 50;
 
+function hasPreviousSong(serverQueue) {
+  if (!serverQueue) return false;
+  if (serverQueue.loop === 'queue') return serverQueue.songs.length > 1;
+  return (serverQueue.history?.length || 0) > 0;
+}
+
+function hasNextSong(serverQueue) {
+  return (serverQueue?.songs?.length || 0) > 1;
+}
+
 function rememberPlayed(serverQueue, song) {
   if (!serverQueue.history) serverQueue.history = [];
   serverQueue.history.push(song);
@@ -2211,18 +2236,12 @@ function rememberPlayed(serverQueue, song) {
 
 // Plays the song before the current one; the current song becomes "up next".
 // With queue-loop on, the previous song is the one at the end of the loop.
-// With nothing to go back to, restarts the current song.
 function previousCore(guildId) {
   const sq = queue.get(guildId);
   if (!sq || !sq.songs[0]) return { ok: false, error: 'Nothing is playing.' };
+  if (!hasPreviousSong(sq)) return { ok: false, error: 'There is no previous song yet.' };
 
-  const prev = sq.loop === 'queue' && sq.songs.length > 1
-    ? sq.songs.pop()
-    : sq.history?.pop();
-  if (!prev) {
-    const restarted = restartCore(guildId);
-    return restarted.ok ? { ok: true, restarted: true, title: sq.songs[0].title } : restarted;
-  }
+  const prev = sq.loop === 'queue' ? sq.songs.pop() : sq.history.pop();
 
   sq.songs.unshift(prev);
   clearIdleDisconnect(sq);
@@ -2236,7 +2255,7 @@ function previous(message, serverQueue) {
   if (!serverQueue) return message.reply('❌ Nothing is playing!');
   const result = previousCore(message.guild.id);
   if (!result.ok) return message.reply(`❌ ${result.error}`);
-  message.reply(result.restarted ? '⏮️ Nothing before this — restarted the current song.' : `⏮️ Back to **${result.title}**`);
+  message.reply(`⏮️ Back to **${result.title}**`);
 }
 function volumeCore(guildId, percent) {
   const sq = queue.get(guildId);
