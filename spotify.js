@@ -7,6 +7,8 @@
 // - playlist contents are only readable for playlists the *logged-in user*
 //   owns, so a bot using client credentials cannot read playlists at all;
 // - single tracks and albums are still readable.
+// Playlists are therefore read from Spotify's public embed player instead
+// (see getPlaylistFromEmbed), which needs no credentials.
 
 const API_BASE = 'https://api.spotify.com/v1';
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
@@ -164,7 +166,60 @@ function createSpotifyClient({ clientId, clientSecret, fetchImpl = fetch, now = 
     };
   }
 
-  return { configured, getTrack, getAlbum };
+  return { configured, getTrack, getAlbum, getPlaylist: (id) => getPlaylistFromEmbed(id, { fetchImpl }) };
+}
+
+// The Web API no longer exposes playlist contents to bots, but Spotify's public
+// embed player (what Discord shows in link previews) still lists up to 100
+// tracks. This reads that page's data. It is unofficial: if Spotify changes the
+// page, this throws a SpotifyError and only playlist links stop working.
+const EMBED_MAX_BYTES = 3 * 1024 * 1024;
+
+async function getPlaylistFromEmbed(id, { fetchImpl = fetch } = {}) {
+  if (!ID_RE.test(String(id || ''))) throw new SpotifyError('Invalid playlist id');
+  const unreadable = (reason) => new SpotifyError(`Spotify playlist embed unreadable: ${reason}`, {
+    userMessage: 'That Spotify playlist could not be read. Make sure it is public, or use a track or album link.',
+  });
+
+  const response = await fetchImpl(`https://open.spotify.com/embed/playlist/${id}`, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; DiscordMusicBot/1.0)', Accept: 'text/html' },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  if (response.status === 404) {
+    throw new SpotifyError('Spotify playlist not found', {
+      status: 404,
+      userMessage: 'That Spotify playlist could not be found. It may be private or deleted.',
+    });
+  }
+  if (!response.ok) throw unreadable(`HTTP ${response.status}`);
+  const html = await response.text();
+  if (html.length > EMBED_MAX_BYTES) throw unreadable('page too large');
+
+  const match = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
+  if (!match) throw unreadable('no embedded data');
+  let entity;
+  try {
+    entity = JSON.parse(match[1])?.props?.pageProps?.state?.data?.entity;
+  } catch {
+    throw unreadable('invalid embedded data');
+  }
+  if (!entity || !Array.isArray(entity.trackList)) throw unreadable('no track list');
+
+  const image = entity.coverArt?.sources?.[0]?.url || null;
+  const tracks = entity.trackList
+    .filter((item) => item && (item.entityType || 'track') === 'track' && item.isPlayable !== false && item.title)
+    .slice(0, MAX_COLLECTION_TRACKS)
+    .map((item) => {
+      const trackId = String(item.uri || '').split(':').pop();
+      return {
+        title: item.title,
+        artists: String(item.subtitle || '').split(', ').map((name) => name.trim()).filter(Boolean),
+        durationMs: Number(item.duration) || null,
+        spotifyUrl: ID_RE.test(trackId) ? `https://open.spotify.com/track/${trackId}` : null,
+        image,
+      };
+    });
+  return { name: entity.name || entity.title || 'Spotify playlist', tracks };
 }
 
 const NOISE_RE = /\b(live|cover|karaoke|instrumental|remix|sped up|slowed|nightcore|8d|reaction|tutorial|lesson)\b/i;

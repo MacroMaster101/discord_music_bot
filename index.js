@@ -213,9 +213,7 @@ const queue = new Map();
 const inflightPlay = new Set(); // guildIds currently bootstrapping a queue
 
 client.once('clientReady', async () => {
-  const machineId = process.env.FLY_MACHINE_ID || 'local';
-  console.log(`🎵 ${client.user.tag} is online! [machine=${machineId}]`);
-  console.log(`👉 If you see this log from MORE than one machine, run: fly scale count 1`);
+  console.log(`🎵 ${client.user.tag} is online!`);
   updatePresence();
   startPresenceRotation();
 
@@ -655,7 +653,7 @@ async function execute(message, serverQueue, args) {
     if (!q || !extraSongs.length) return;
     q.songs.push(...extraSongs);
     maybePrefetchNextSong(q);
-    await message.channel.send(`💿 Queued **${extraSongs.length}** more song(s) from **${collectionName || 'the album'}**.`).catch(() => {});
+    await message.channel.send(`💿 Queued **${extraSongs.length}** more song(s) from **${collectionName || 'Spotify'}**.`).catch(() => {});
   };
 
   // Re-read AFTER awaits to pick up state changes during search
@@ -921,20 +919,21 @@ function songFromSpotifyTrack(track) {
   };
 }
 
-// Reads a Spotify track or album link into queueable songs. Playlists cannot be
-// read by bots since Spotify's February 2026 API changes, so they are refused
-// with an explanation. Throws SpotifyError with a user-facing message.
+// Reads a Spotify track, album or playlist link into queueable songs. Tracks and
+// albums use the Web API (needs credentials); playlists come from Spotify's
+// public embed player, since the Web API stopped exposing them to bots in
+// February 2026. Throws SpotifyError with a user-facing message.
 async function getSongsFromSpotify(input) {
   const link = parseSpotifyLink(input);
   if (!link) {
     throw new SpotifyError('Unsupported Spotify link', {
-      userMessage: 'Only Spotify **track** and **album** links are supported. In Spotify use "Share → Copy link".',
+      userMessage: 'Only Spotify **track**, **album** and **playlist** links are supported. In Spotify use "Share → Copy link".',
     });
   }
   if (link.type === 'playlist') {
-    throw new SpotifyError('Spotify playlists are not readable', {
-      userMessage: 'Spotify no longer lets bots read playlists. Use a Spotify **track** or **album** link, or a YouTube playlist.',
-    });
+    const playlist = await spotify.getPlaylist(link.id);
+    if (!playlist.tracks.length) throw new SpotifyError('Empty playlist', { userMessage: 'That Spotify playlist has no playable tracks.' });
+    return { name: playlist.name, songs: playlist.tracks.map(songFromSpotifyTrack) };
   }
   if (!spotify.configured) {
     throw new SpotifyError('Spotify credentials are not configured', {
@@ -1824,9 +1823,9 @@ function sendHelp(message) {
       {
         name: '🎶  Playback',
         value: [
-          `\`${PREFIX}play <song>\` *(p)* — Play a song by name, YouTube link, or Spotify track/album link`,
+          `\`${PREFIX}play <song>\` *(p)* — Play a song by name, YouTube link, or Spotify link`,
           `\`${PREFIX}search <query>\` *(sr)* — Pick from top 5 results`,
-          `\`${PREFIX}playlist <url>\` *(pl)* — Add a YouTube playlist or Spotify album`,
+          `\`${PREFIX}playlist <url>\` *(pl)* — Add a YouTube playlist, or a Spotify album or playlist`,
           `\`${PREFIX}pause\` / \`${PREFIX}resume\` — Pause / resume`,
           `\`${PREFIX}skip\` *(s)* — Skip to the next song`,
           `\`${PREFIX}seek <time>\` — Jump to a position (\`1:30\`)`,
@@ -2059,7 +2058,7 @@ async function playlistCommand(message, serverQueue, args) {
   const PREFIX = getPrefix(message.guild.id);
   const url = args[0];
   if (url && isSpotifyLink(url)) return execute(message, serverQueue, [url]);
-  if (!url || !isYouTubeUrl(url)) return message.reply(`❌ Usage: \`${PREFIX}playlist <youtube playlist url | spotify album url>\``);
+  if (!url || !isYouTubeUrl(url)) return message.reply(`❌ Usage: \`${PREFIX}playlist <youtube playlist | spotify album or playlist url>\``);
 
   const voiceChannel = message.member?.voice?.channel;
   if (!voiceChannel) return message.reply('❌ You need to be in a voice channel!');
