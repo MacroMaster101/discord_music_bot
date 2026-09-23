@@ -12,6 +12,7 @@ How to run your own copy of the bot and its web dashboard. If you just want to u
 | `server.js` | Web dashboard: public status page, admin console, APIs |
 | `spotify.js` | Spotify link parsing, Web API client, playlist reader, YouTube matching |
 | `resume.js` | Saves queues on shutdown and restores them on the next start |
+| `slash-commands.js` | Slash command definitions (registered on startup only when they change) |
 | `settings.js` | Global and per-server settings (JSON in `data/`) |
 | `web/` | Dashboard pages, scripts, and styles |
 | `test/` | Automated tests (`npm test`) |

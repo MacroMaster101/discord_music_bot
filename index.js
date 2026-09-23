@@ -9,6 +9,7 @@ const {
   SpotifyError, createSpotifyClient, isSpotifyLink, parseSpotifyLink, pickBestYouTubeMatch, youTubeQueryFor,
 } = require('./spotify');
 const { loadSnapshots, resumePosition, saveSnapshots, snapshotQueue } = require('./resume');
+const { commandDefinitions, definitionsSignature, toPrefixCommand } = require('./slash-commands');
 
 settings.load();
 
@@ -262,6 +263,7 @@ client.once('clientReady', async () => {
 
   // Pick up any music that was playing when the bot last shut down (deploys).
   resumeSavedQueues().catch((err) => console.error('Resume failed:', err));
+  registerSlashCommands().catch((err) => console.error('Could not register slash commands:', err.message || err));
 
   // Reset bot nickname in all guilds to the original app name
   for (const [, guild] of client.guilds.cache) {
@@ -376,35 +378,100 @@ client.on('messageCreate', async (message) => {
         userName: message.author.username,
       });
     }
-
-    if (command === 'play' || command === 'p') await execute(message, serverQueue, args);
-    else if (command === 'skip' || command === 's') skip(message, serverQueue);
-    else if (command === 'previous' || command === 'prev' || command === 'back') previous(message, serverQueue);
-    else if (command === 'stop' || command === 'dc' || command === 'disconnect') stop(message, serverQueue);
-    else if (command === 'queue' || command === 'q') showQueue(message, serverQueue);
-    else if (command === 'help' || command === 'h') sendHelp(message);
-    else if (command === 'pause') pause(message, serverQueue);
-    else if (command === 'resume' || command === 'unpause') resume(message, serverQueue);
-    else if (command === 'nowplaying' || command === 'np') nowPlaying(message, serverQueue);
-    else if (command === 'volume' || command === 'vol') setVolume(message, serverQueue, args);
-    else if (command === 'shuffle') shuffle(message, serverQueue);
-    else if (command === 'remove') removeSong(message, serverQueue, args);
-    else if (command === 'loop' || command === 'repeat') loopCommand(message, serverQueue, args);
-    else if (command === 'clear') clearQueue(message, serverQueue);
-    else if (command === 'move' || command === 'mv') moveCommand(message, serverQueue, args);
-    else if (command === 'seek') await seekCommand(message, serverQueue, args);
-    else if (command === 'search' || command === 'sr') await searchCommand(message, args);
-    else if (command === 'spotify' || command === 'sp') await spotifySearchPlay(message, serverQueue, args);
-    else if (command === 'playlist' || command === 'pl') await playlistCommand(message, serverQueue, args);
-    else if (command === 'lyrics' || command === 'ly') await lyricsCommand(message, serverQueue, args);
+    await runCommand(command, message, serverQueue, args);
   } catch (err) {
     console.error('Error:', err);
     message.reply('⚠️ Something went wrong!');
   }
 });
 
+// Runs a command for either a `!` message or a `/` slash command (which passes
+// a message-like adapter, see slashAsMessage).
+async function runCommand(command, message, serverQueue, args) {
+  if (command === 'play' || command === 'p') await execute(message, serverQueue, args);
+  else if (command === 'skip' || command === 's') skip(message, serverQueue);
+  else if (command === 'previous' || command === 'prev' || command === 'back') previous(message, serverQueue);
+  else if (command === 'stop' || command === 'dc' || command === 'disconnect') stop(message, serverQueue);
+  else if (command === 'queue' || command === 'q') showQueue(message, serverQueue);
+  else if (command === 'help' || command === 'h') sendHelp(message);
+  else if (command === 'pause') pause(message, serverQueue);
+  else if (command === 'resume' || command === 'unpause') resume(message, serverQueue);
+  else if (command === 'nowplaying' || command === 'np') nowPlaying(message, serverQueue);
+  else if (command === 'volume' || command === 'vol') setVolume(message, serverQueue, args);
+  else if (command === 'shuffle') shuffle(message, serverQueue);
+  else if (command === 'remove') removeSong(message, serverQueue, args);
+  else if (command === 'loop' || command === 'repeat') loopCommand(message, serverQueue, args);
+  else if (command === 'clear') clearQueue(message, serverQueue);
+  else if (command === 'move' || command === 'mv') moveCommand(message, serverQueue, args);
+  else if (command === 'seek') await seekCommand(message, serverQueue, args);
+  else if (command === 'search' || command === 'sr') await searchCommand(message, args);
+  else if (command === 'spotify' || command === 'sp') await spotifySearchPlay(message, serverQueue, args);
+  else if (command === 'playlist' || command === 'pl') await playlistCommand(message, serverQueue, args);
+  else if (command === 'lyrics' || command === 'ly') await lyricsCommand(message, serverQueue, args);
+}
+
+// Makes a slash-command interaction look like a message to the command code:
+// the first reply fills the deferred "thinking…" response, later replies are
+// follow-ups, and the returned handles support .edit() and .delete().
+function slashAsMessage(interaction) {
+  const payload = (p) => (typeof p === 'string' ? { content: p } : p);
+  const handle = (messageId) => ({
+    edit: (p) => interaction.editReply(messageId ? { ...payload(p), message: messageId } : payload(p)),
+    delete: () => interaction.deleteReply(messageId || undefined),
+  });
+  const adapter = {
+    guild: interaction.guild,
+    member: interaction.member,
+    channel: interaction.channel,
+    author: interaction.user,
+    replied: false,
+    async reply(p) {
+      if (!adapter.replied) {
+        adapter.replied = true; // set before awaiting so sync callers count
+        await interaction.editReply(payload(p));
+        return handle(null);
+      }
+      const sent = await interaction.followUp(payload(p));
+      return handle(sent.id);
+    },
+  };
+  return adapter;
+}
+
+async function handleSlashCommand(interaction) {
+  const options = Object.fromEntries(interaction.options.data.map((o) => [o.name, o.value]));
+  const mapped = toPrefixCommand(interaction.commandName, options);
+  if (!mapped) return;
+
+  await interaction.deferReply();
+  const message = slashAsMessage(interaction);
+  logCommand({ command: interaction.commandName, guildName: interaction.guild.name, userName: interaction.user.username });
+  try {
+    await runCommand(mapped.command, message, queue.get(interaction.guild.id), mapped.args);
+  } catch (err) {
+    console.error('Slash command error:', err);
+    await message.reply('⚠️ Something went wrong!').catch(() => {});
+  }
+  // Commands that answered with their own card (or nothing) leave the
+  // "thinking…" placeholder behind; remove it.
+  if (!message.replied) await interaction.deleteReply().catch(() => {});
+}
+
+// Registers the slash commands globally, only when they changed, so restarts
+// don't hit Discord's command-creation limits.
+async function registerSlashCommands() {
+  const wanted = commandDefinitions();
+  const existing = await client.application.commands.fetch();
+  if (definitionsSignature([...existing.values()]) === definitionsSignature(wanted)) return;
+  await client.application.commands.set(wanted);
+  console.log(`⌨️ Registered ${wanted.length} slash commands`);
+}
+
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.guild) return;
+  if (interaction.isChatInputCommand()) {
+    return handleSlashCommand(interaction).catch((err) => console.error('Slash command failed:', err));
+  }
   if (!interaction.isButton() && !interaction.isStringSelectMenu()) return;
 
   // Queue picker — select menu produces this; action buttons follow it
@@ -1927,7 +1994,7 @@ function sendHelp(message) {
   const embed = new EmbedBuilder()
     .setColor(0x5865F2)
     .setTitle(`🎵 ${botName} — Commands`)
-    .setDescription(`Use prefix \`${PREFIX}\` before each command.\nAliases are shown in parentheses.`)
+    .setDescription(`Use prefix \`${PREFIX}\` before each command, or type \`/\` for slash commands.\nAliases are shown in parentheses.`)
     .addFields(
       {
         name: '🎶  Playback',

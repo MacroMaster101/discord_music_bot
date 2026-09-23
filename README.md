@@ -22,7 +22,7 @@ A Discord music bot that turns any voice channel into a live stage. Search for a
 
 ## 🎮 Commands
 
-The default prefix is `!`. The bot owner can set a different prefix for your server.
+Every command works two ways: type it with the `!` prefix (like `!play`), or as a **slash command** (type `/` and pick it from the list, like `/play`). Slash commands show their options as you type. The bot owner can set a different `!` prefix for your server.
 
 ### Playing music
 | Command | What it does |
