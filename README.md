@@ -12,7 +12,7 @@ A Discord music bot that turns any voice channel into a live stage. Search for a
 - 🟢 **Spotify links.** Paste a Spotify track, album, or playlist link and the bot plays it. Albums and playlists queue up to 100 songs.
 - 📂 **Playlists.** Queue a whole YouTube playlist, Spotify album, or Spotify playlist at once.
 - 🎛️ **One-tap controls.** Every song gets a Now Playing card with buttons: previous, skip, pause, seek ±10/30 seconds, loop, shuffle, volume, and queue.
-- 🔍 **Pick from results.** `!search` shows the top matches so you can choose the right version.
+- 🔍 **Search YouTube and Spotify.** `!search` shows results from both so you can pick the right version, and `!spotify <song>` finds a song by its Spotify name.
 - 🎤 **Lyrics.** `!lyrics` finds the words to the current song.
 - 🔒 **Private per server.** Each server has its own queue and controls. The song shows on your voice channel's status, visible only inside your server.
 - ⏱️ **Tidy by default.** Leaves empty voice channels and pauses when everyone leaves.
@@ -28,7 +28,8 @@ The default prefix is `!`. The bot owner can set a different prefix for your ser
 | Command | What it does |
 | :--- | :--- |
 | `!play <song or link>` (`!p`) | Play a song by name, or a YouTube or Spotify link. Adds to the queue if something is already playing. |
-| `!search <song>` (`!sr`) | Show the top results and pick one. |
+| `!search <song>` (`!sr`) | Show the top YouTube and Spotify results and pick one. |
+| `!spotify <song>` (`!sp`) | Find a song on Spotify by name and play it. |
 | `!playlist <link>` (`!pl`) | Queue a YouTube playlist, or a Spotify album or playlist. |
 | `!pause` / `!resume` | Pause or resume. |
 | `!skip` (`!s`) | Skip to the next song. |
@@ -55,6 +56,8 @@ The default prefix is `!`. The bot owner can set a different prefix for your ser
 ## 🟢 About Spotify links
 
 Spotify doesn't let bots stream its audio, so J4FN Music reads the song details from your Spotify link and plays the best-matching version from YouTube. It prefers official audio and avoids live or cover versions unless the song title asks for one. Once in a while the match may be a different recording of the same song.
+
+Songs are also found by name on Spotify (`!spotify <song>`, or automatically when YouTube search finds nothing). The audio still comes from YouTube, so a song that exists only on Spotify can't be played.
 
 Private Spotify playlists can't be read. Make a playlist public to play it.
 

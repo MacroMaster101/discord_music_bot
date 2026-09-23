@@ -150,3 +150,15 @@ test('playlists are read from the public embed page without credentials', async 
   );
   await assert.rejects(createSpotifyClient({ fetchImpl }).getPlaylist('../../evil'), SpotifyError);
 });
+
+test('name search returns tracks and caps the limit at 10', async () => {
+  const { impl, calls } = fakeFetch({
+    'https://accounts.spotify.com/api/token': tokenRoute,
+    '/search?type=track&limit=10&q=bowitiya%20mal%20%26%20more': { body: { tracks: { items: [rawTrack('Bowitiya Mal', 268976)] } } },
+  });
+  const client = createSpotifyClient({ clientId: 'id', clientSecret: 's', fetchImpl: impl });
+  const results = await client.searchTracks('bowitiya mal & more', 50);
+  assert.deepEqual(results.map((t) => t.title), ['Bowitiya Mal']);
+  assert.ok(calls.some((c) => c.url.includes('limit=10&q=bowitiya%20mal%20%26%20more')), 'query is URL-encoded and limit capped');
+  assert.deepEqual(await client.searchTracks('   '), []);
+});

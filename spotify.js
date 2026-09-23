@@ -166,7 +166,16 @@ function createSpotifyClient({ clientId, clientSecret, fetchImpl = fetch, now = 
     };
   }
 
-  return { configured, getTrack, getAlbum, getPlaylist: (id) => getPlaylistFromEmbed(id, { fetchImpl }) };
+  // Name search. Spotify caps `limit` at 10 for Development Mode apps.
+  async function searchTracks(query, limit = 5) {
+    const text = String(query || '').trim().slice(0, 200);
+    if (!text) return [];
+    const n = Math.min(Math.max(Math.floor(limit) || 5, 1), 10);
+    const data = await api(`/search?type=track&limit=${n}&q=${encodeURIComponent(text)}`);
+    return (data.tracks?.items || []).map((raw) => toTrack(raw)).filter(Boolean);
+  }
+
+  return { configured, getTrack, getAlbum, searchTracks, getPlaylist: (id) => getPlaylistFromEmbed(id, { fetchImpl }) };
 }
 
 // The Web API no longer exposes playlist contents to bots, but Spotify's public

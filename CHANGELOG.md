@@ -1,6 +1,11 @@
 # Changelog
 
-All notable changes to J4FN Music. Versions follow [semantic versioning](https://semver.org): new features raise the middle number, fixes alone raise the last one.
+All notable changes to J4FN Music, newest first.
+
+## [1.1.1] - 2026-09-23
+
+### New
+- **Search Spotify by name.** `!search` shows YouTube and Spotify results together, `!spotify <song>` (`!sp`) plays the top Spotify match, and `!play <song>` falls back to Spotify when YouTube finds nothing. Songs play from their matching YouTube audio, which finds official uploads that YouTube's own search can miss.
 
 ## [1.1.0] - 2026-09-23
 
@@ -31,5 +36,6 @@ All notable changes to J4FN Music. Versions follow [semantic versioning](https:/
 
 First release: YouTube playback with search, playlists, queue controls, lyrics, and interactive buttons; a public status page; and a protected admin console.
 
+[1.1.1]: https://github.com/MacroMaster101/discord_music_bot/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/MacroMaster101/discord_music_bot/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/MacroMaster101/discord_music_bot/releases/tag/v1.0.0

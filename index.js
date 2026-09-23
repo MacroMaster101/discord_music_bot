@@ -364,7 +364,7 @@ client.on('messageCreate', async (message) => {
   const KNOWN = new Set([
     'play','p','skip','s','previous','prev','back','stop','dc','disconnect','queue','q','help','h',
     'pause','resume','unpause','nowplaying','np','volume','vol','shuffle',
-    'remove','loop','repeat','clear','move','mv','seek','search','sr',
+    'remove','loop','repeat','clear','move','mv','seek','search','sr','spotify','sp',
     'playlist','pl','lyrics','ly'
   ]);
 
@@ -394,6 +394,7 @@ client.on('messageCreate', async (message) => {
     else if (command === 'move' || command === 'mv') moveCommand(message, serverQueue, args);
     else if (command === 'seek') await seekCommand(message, serverQueue, args);
     else if (command === 'search' || command === 'sr') await searchCommand(message, args);
+    else if (command === 'spotify' || command === 'sp') await spotifySearchPlay(message, serverQueue, args);
     else if (command === 'playlist' || command === 'pl') await playlistCommand(message, serverQueue, args);
     else if (command === 'lyrics' || command === 'ly') await lyricsCommand(message, serverQueue, args);
   } catch (err) {
@@ -465,8 +466,8 @@ client.on('interactionCreate', async (interaction) => {
     if (session.requesterId !== interaction.user.id) {
       return interaction.reply({ content: '❌ Only the user who ran the search can pick.', ephemeral: true });
     }
-    const video = session.results[parseInt(indexStr, 10)];
-    if (!video) {
+    const picked = session.results[parseInt(indexStr, 10)];
+    if (!picked) {
       return interaction.reply({ content: '❌ Invalid pick.', ephemeral: true });
     }
     searchSessions.delete(sessionId);
@@ -484,7 +485,7 @@ client.on('interactionCreate', async (interaction) => {
       author: interaction.user,
       reply: (content) => interaction.followUp(typeof content === 'string' ? { content, ephemeral: false } : content),
     };
-    return execute(fakeMessage, queue.get(interaction.guild.id), [video.url]);
+    return execute(fakeMessage, queue.get(interaction.guild.id), [picked.url]);
   }
 
   const serverQueue = queue.get(interaction.guild.id);
@@ -671,17 +672,27 @@ async function execute(message, serverQueue, args) {
       const searchResult = await ytSearch(searchText);
       const video = searchResult.videos?.[0];
       if (!video) {
-        await statusMsg.edit('❌ No results found.').catch(() => {});
-        return;
+        // Nothing on YouTube under that name: Spotify often knows the exact
+        // title/artist, which the YouTube matcher can then find.
+        const spotifyTrack = spotify.configured
+          ? (await spotify.searchTracks(searchText, 1).catch(() => []))[0]
+          : null;
+        if (!spotifyTrack) {
+          await statusMsg.edit('❌ No results found.').catch(() => {});
+          return;
+        }
+        song = songFromSpotifyTrack(spotifyTrack);
       }
-      song = {
-        id: createSongId(),
-        title: video.title,
-        url: video.url,
-        streamUrl: null,
-        duration: video.seconds || null,
-        thumbnail: video.thumbnail || null,
-      };
+      if (!song) {
+        song = {
+          id: createSongId(),
+          title: video.title,
+          url: video.url,
+          streamUrl: null,
+          duration: video.seconds || null,
+          thumbnail: video.thumbnail || null,
+        };
+      }
     }
   } catch (err) {
     console.error('Search error:', err);
@@ -1922,7 +1933,8 @@ function sendHelp(message) {
         name: '🎶  Playback',
         value: [
           `\`${PREFIX}play <song>\` *(p)* — Play a song by name, YouTube link, or Spotify link`,
-          `\`${PREFIX}search <query>\` *(sr)* — Pick from top 5 results`,
+          `\`${PREFIX}search <query>\` *(sr)* — Pick from YouTube and Spotify results`,
+          `\`${PREFIX}spotify <song>\` *(sp)* — Find a song on Spotify and play it`,
           `\`${PREFIX}playlist <url>\` *(pl)* — Add a YouTube playlist, or a Spotify album or playlist`,
           `\`${PREFIX}pause\` / \`${PREFIX}resume\` — Pause / resume`,
           `\`${PREFIX}skip\` *(s)* — Skip to the next song`,
@@ -2134,41 +2146,69 @@ async function searchCommand(message, args) {
   const query = args.join(' ');
   const searching = await message.reply(`🔍 Searching for **${query}**...`);
 
-  let videos;
-  try {
-    const result = await ytSearch(query);
-    videos = (result.videos || []).slice(0, 5);
-  } catch (err) {
-    return searching.edit('❌ Search failed.');
-  }
-
-  if (!videos.length) return searching.edit('❌ No results found.');
+  // YouTube and Spotify are searched together; either may come back empty.
+  const [youtube, spotifyTracks] = await Promise.all([
+    ytSearch(query).then((r) => (r.videos || []).slice(0, 5)).catch(() => []),
+    spotify.configured ? spotify.searchTracks(query, 3).catch(() => []) : Promise.resolve([]),
+  ]);
+  const results = [
+    ...youtube.map((v) => ({ source: 'youtube', title: v.title, url: v.url, length: v.timestamp })),
+    ...spotifyTracks.filter((t) => t.spotifyUrl).map((t) => ({
+      source: 'spotify',
+      title: `${t.artists.join(', ')} - ${t.title}`,
+      url: t.spotifyUrl,
+      length: t.durationMs ? formatTime(Math.round(t.durationMs / 1000)) : '?',
+    })),
+  ];
+  if (!results.length) return searching.edit('❌ No results found.');
 
   const sessionId = (nextSearchSessionId++).toString();
   searchSessions.set(sessionId, {
-    results: videos,
+    results,
     requesterId: message.author.id,
     createdAt: Date.now(),
   });
   setTimeout(() => searchSessions.delete(sessionId), 60_000);
 
-  const list = videos.map((v, i) => `**${i + 1}.** [${v.title}](${v.url}) — \`${v.timestamp}\``).join('\n');
+  const line = (r, i) => `**${i + 1}.** [${r.title}](${r.url}) — \`${r.length}\``;
+  const sections = [];
+  const ytLines = results.map((r, i) => (r.source === 'youtube' ? line(r, i) : null)).filter(Boolean);
+  const spLines = results.map((r, i) => (r.source === 'spotify' ? line(r, i) : null)).filter(Boolean);
+  if (ytLines.length) sections.push(`**▶️ YouTube**\n${ytLines.join('\n')}`);
+  if (spLines.length) sections.push(`**🟢 Spotify** *(plays the matching audio)*\n${spLines.join('\n')}`);
   const embed = new EmbedBuilder()
     .setColor(0xd946ef)
     .setTitle(`🔍 Search results for "${query}"`)
-    .setDescription(list)
+    .setDescription(sections.join('\n\n'))
     .setFooter({ text: 'Pick a result with the buttons below • expires in 60s' });
 
-  const row = new ActionRowBuilder().addComponents(
-    ...videos.map((_, i) =>
-      new ButtonBuilder()
-        .setCustomId(`search_pick:${sessionId}:${i}`)
-        .setLabel(`${i + 1}`)
-        .setStyle(ButtonStyle.Primary)
-    )
-  );
+  const button = (r, i) => new ButtonBuilder()
+    .setCustomId(`search_pick:${sessionId}:${i}`)
+    .setLabel(`${i + 1}`)
+    .setStyle(r.source === 'spotify' ? ButtonStyle.Success : ButtonStyle.Primary);
+  const rows = [];
+  const ytButtons = results.map((r, i) => (r.source === 'youtube' ? button(r, i) : null)).filter(Boolean);
+  const spButtons = results.map((r, i) => (r.source === 'spotify' ? button(r, i) : null)).filter(Boolean);
+  if (ytButtons.length) rows.push(new ActionRowBuilder().addComponents(...ytButtons));
+  if (spButtons.length) rows.push(new ActionRowBuilder().addComponents(...spButtons));
 
-  await searching.edit({ content: '', embeds: [embed], components: [row] });
+  await searching.edit({ content: '', embeds: [embed], components: rows });
+}
+
+// !spotify <song>: find the song on Spotify and play it (matched to YouTube audio).
+async function spotifySearchPlay(message, serverQueue, args) {
+  const PREFIX = getPrefix(message.guild.id);
+  if (!args.length) return message.reply(`❌ Usage: \`${PREFIX}spotify <song name>\``);
+  if (!spotify.configured) return message.reply('❌ Spotify search is not enabled on this bot. Try `play` instead.');
+  let track;
+  try {
+    [track] = await spotify.searchTracks(args.join(' '), 1);
+  } catch (err) {
+    console.warn('Spotify search failed:', err.message || err);
+    return message.reply(`❌ ${err.userMessage || 'Spotify search failed. Try again in a moment.'}`);
+  }
+  if (!track?.spotifyUrl) return message.reply('❌ No Spotify results for that.');
+  return execute(message, serverQueue, [track.spotifyUrl]);
 }
 
 // ──── Playlist ────
