@@ -456,6 +456,7 @@ async function runControl(hooks, data) {
   switch (action) {
     case 'pause': return hooks.pauseResumeCore?.(guildId);
     case 'skip': return hooks.skipCore?.(guildId);
+    case 'previous': return hooks.previousCore?.(guildId);
     case 'stop': return hooks.stopCore?.(guildId);
     case 'restart': return hooks.restartCore?.(guildId);
     case 'volume': return hooks.volumeCore?.(guildId, value);
