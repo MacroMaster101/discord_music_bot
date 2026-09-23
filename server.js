@@ -8,6 +8,19 @@ const settings = require('./settings');
 const WEB_DIR = path.join(__dirname, 'web');
 const PORT = Number(process.env.PORT || 8080);
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
+// Cloudflare Access application settings. When both are set, the Access JWT is
+// verified (signature, audience, issuer, expiry) instead of trusting headers.
+const CF_ACCESS_TEAM_DOMAIN = String(process.env.CF_ACCESS_TEAM_DOMAIN || '')
+  .trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+const CF_ACCESS_AUD = String(process.env.CF_ACCESS_AUD || '').trim();
+const ACCESS_KEYS_TTL_MS = 60 * 60 * 1000;
+const SNOWFLAKE_RE = /^\d{15,25}$/;
+// Public bug reports are relayed server-side to Formspree, which emails them to
+// the form owner. The form ID stays on the server; unset disables the feature.
+const FORMSPREE_FORM_ID = String(process.env.FORMSPREE_FORM_ID || '').trim();
+const BUG_REPORT_MAX_PER_WINDOW = 3;
+const BUG_REPORT_WINDOW_MS = 10 * 60 * 1000;
+const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$/;
 const VM_MEMORY_MB = Number(process.env.VM_MEMORY_MB || 2048);
 const HISTORY_INTERVAL_MS = 30_000;
 const HISTORY_LIMIT = 240;
@@ -89,16 +102,82 @@ function getRequestToken(req) {
   return bearer?.[1] || req.headers['x-admin-token'] || '';
 }
 
-function getCloudflareIdentity(req) {
+function base64UrlJson(part) {
+  return JSON.parse(Buffer.from(part, 'base64url').toString('utf8'));
+}
+
+// Verifies a Cloudflare Access JWT (RS256) against the team's published keys.
+// Returns the authenticated email, or '' when the token is missing or invalid.
+function createAccessVerifier({ teamDomain, aud, fetchKeys, now = () => Date.now() }) {
+  const issuer = `https://${teamDomain}`;
+  let cachedKeys = null;
+  let cachedAt = 0;
+
+  const loadKeys = async (force = false) => {
+    if (!force && cachedKeys && now() - cachedAt < ACCESS_KEYS_TTL_MS) return cachedKeys;
+    const jwks = await (fetchKeys
+      ? fetchKeys()
+      : fetch(`${issuer}/cdn-cgi/access/certs`).then((r) => {
+        if (!r.ok) throw new Error(`Access certs HTTP ${r.status}`);
+        return r.json();
+      }));
+    cachedKeys = new Map((jwks.keys || []).map((jwk) => [jwk.kid, crypto.createPublicKey({ key: jwk, format: 'jwk' })]));
+    cachedAt = now();
+    return cachedKeys;
+  };
+
+  return async function verify(token) {
+    try {
+      const parts = String(token || '').split('.');
+      if (parts.length !== 3) return '';
+      const header = base64UrlJson(parts[0]);
+      const claims = base64UrlJson(parts[1]);
+      if (header.alg !== 'RS256' || !header.kid) return '';
+
+      let key = (await loadKeys()).get(header.kid);
+      if (!key) key = (await loadKeys(true)).get(header.kid); // key rotation
+      if (!key) return '';
+
+      const valid = crypto.verify(
+        'RSA-SHA256',
+        Buffer.from(`${parts[0]}.${parts[1]}`),
+        key,
+        Buffer.from(parts[2], 'base64url'),
+      );
+      if (!valid) return '';
+
+      const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+      const seconds = Math.floor(now() / 1000);
+      if (!audiences.includes(aud)) return '';
+      if (claims.iss !== issuer) return '';
+      if (!Number.isFinite(claims.exp) || claims.exp <= seconds) return '';
+      if (Number.isFinite(claims.nbf) && claims.nbf > seconds + 60) return '';
+      return typeof claims.email === 'string' ? claims.email : '';
+    } catch (err) {
+      console.warn('[admin] Access JWT verification failed:', err.message || err);
+      return '';
+    }
+  };
+}
+
+const defaultAccessVerifier = CF_ACCESS_TEAM_DOMAIN && CF_ACCESS_AUD
+  ? createAccessVerifier({ teamDomain: CF_ACCESS_TEAM_DOMAIN, aud: CF_ACCESS_AUD })
+  : null;
+if (!defaultAccessVerifier) {
+  console.warn('[admin] CF_ACCESS_TEAM_DOMAIN / CF_ACCESS_AUD not set: Cloudflare Access headers are trusted without JWT verification. Keep the origin reachable only through the tunnel.');
+}
+
+async function getCloudflareIdentity(req, verifier = defaultAccessVerifier) {
   const email = String(req.headers['cf-access-authenticated-user-email'] || '').trim();
   const assertion = String(req.headers['cf-access-jwt-assertion'] || '').trim();
+  if (verifier) return assertion ? verifier(assertion) : '';
   const ray = String(req.headers['cf-ray'] || '').trim();
   return email && assertion && ray ? email : '';
 }
 
-function isAdminRequest(req, token = ADMIN_TOKEN) {
-  return Boolean(getCloudflareIdentity(req))
-    || (Boolean(token) && safeEqual(getRequestToken(req), token));
+async function isAdminRequest(req, token = ADMIN_TOKEN, verifier = defaultAccessVerifier) {
+  if (Boolean(token) && safeEqual(getRequestToken(req), token)) return true;
+  return Boolean(await getCloudflareIdentity(req, verifier));
 }
 
 // The /console/api mount is reachable from the internet (Cloudflare Access only gates
@@ -112,11 +191,9 @@ const loginLockouts = new Map();
 
 function clientIp(req) {
   // Every request arrives from Cloudflare, so socket address alone would throttle all
-  // callers as one; CF-Connecting-IP carries the real client.
-  return String(req.headers['cf-connecting-ip']
-    || String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()
-    || req.socket?.remoteAddress
-    || 'unknown');
+  // callers as one; CF-Connecting-IP carries the real client (Cloudflare overwrites it).
+  // X-Forwarded-For is not trusted: a caller could rotate it to dodge the lockout.
+  return String(req.headers['cf-connecting-ip'] || req.socket?.remoteAddress || 'unknown');
 }
 
 function loginRetryAfter(ip, now) {
@@ -128,6 +205,10 @@ function loginRetryAfter(ip, now) {
 
 function recordLoginFailure(ip, now) {
   const recent = (loginFailures.get(ip) || []).filter((at) => now - at <= LOGIN_WINDOW_MS);
+  // Bound memory if many distinct addresses fail: drop the oldest tracked entry.
+  if (!loginFailures.has(ip) && loginFailures.size >= 10_000) {
+    loginFailures.delete(loginFailures.keys().next().value);
+  }
   recent.push(now);
   if (recent.length >= LOGIN_MAX_ATTEMPTS) {
     loginLockouts.set(ip, now + LOGIN_LOCKOUT_MS);
@@ -138,7 +219,7 @@ function recordLoginFailure(ip, now) {
   loginFailures.set(ip, recent);
 }
 
-function requireAdmin(req, res) {
+async function requireAdmin(req, res) {
   const ip = clientIp(req);
   const now = Date.now();
 
@@ -149,7 +230,7 @@ function requireAdmin(req, res) {
     return false;
   }
 
-  if (isAdminRequest(req)) {
+  if (await isAdminRequest(req)) {
     loginFailures.delete(ip);
     return true;
   }
@@ -160,6 +241,46 @@ function requireAdmin(req, res) {
   recordLoginFailure(ip, now);
   sendJson(res, 401, { error: 'Cloudflare Access session or admin token is invalid.' });
   return false;
+}
+
+function bugReportFormId(hooks) {
+  const id = hooks.bugReportFormId ?? FORMSPREE_FORM_ID;
+  return /^[A-Za-z0-9]{4,32}$/.test(id) ? id : '';
+}
+
+async function forwardToFormspree(formId, report) {
+  const response = await fetch(`https://formspree.io/f/${formId}`, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      _subject: 'Bug report from the Discord Music status page',
+      email: report.email,
+      message: report.message,
+      userAgent: report.userAgent,
+    }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) throw new Error(`Formspree HTTP ${response.status}`);
+}
+
+function validateBugReport(body) {
+  const email = String(body?.email || '').trim();
+  const message = String(body?.message || '').trim();
+  if (!EMAIL_RE.test(email) || email.length > 254) return { error: 'Enter a valid email address so we can reply.' };
+  if (message.length < 10) return { error: 'Describe the bug in at least 10 characters.' };
+  if (message.length > 2000) return { error: 'Keep the description under 2000 characters.' };
+  return { email, message };
+}
+
+// A browser on another site must not be able to submit through this relay.
+function isSameOriginPost(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  try {
+    return new URL(origin).host === req.headers.host;
+  } catch {
+    return false;
+  }
 }
 
 function readJson(req, maxBytes = 32 * 1024) {
@@ -250,6 +371,7 @@ function buildPublicPayload(client, queue, hooks = {}) {
     audience: online ? client.guilds.cache.reduce((sum, guild) => sum + (guild.memberCount || 0), 0) : 0,
     activeStreams: entries.length,
     totalSongsPlayed: Number(botStats.totalSongsPlayed || 0),
+    bugReports: Boolean(bugReportFormId(hooks)),
     servers: publicGuildList(client, queue),
     activeTracks: entries.map(([guildId, serverQueue], index) => {
       const song = serverQueue.songs[0];
@@ -365,6 +487,18 @@ function createDashboardServer(client, queue, hooks = {}) {
   const historyTimer = setInterval(sampleHistory, HISTORY_INTERVAL_MS);
   historyTimer.unref?.();
 
+  const bugReportTimes = new Map();
+  const bugReportAllowed = (ip, now) => {
+    const recent = (bugReportTimes.get(ip) || []).filter((at) => now - at < BUG_REPORT_WINDOW_MS);
+    if (recent.length >= BUG_REPORT_MAX_PER_WINDOW) return false;
+    if (!bugReportTimes.has(ip) && bugReportTimes.size >= 10_000) {
+      bugReportTimes.delete(bugReportTimes.keys().next().value);
+    }
+    recent.push(now);
+    bugReportTimes.set(ip, recent);
+    return true;
+  };
+
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || '/', 'http://dashboard.local');
     let pathname = url.pathname;
@@ -424,14 +558,40 @@ function createDashboardServer(client, queue, hooks = {}) {
       if (req.method === 'GET' && pathname === '/api/public/history') {
         return sendJson(res, 200, { intervalMs: HISTORY_INTERVAL_MS, points: history }, true);
       }
+      if (req.method === 'POST' && pathname === '/api/public/bug-report') {
+        const formId = bugReportFormId(hooks);
+        if (!formId) return sendJson(res, 503, { error: 'Bug reports are not enabled.' });
+        if (!isSameOriginPost(req)) return sendJson(res, 403, { error: 'Cross-site submissions are not allowed.' });
+        if (!String(req.headers['content-type'] || '').startsWith('application/json')) {
+          return sendJson(res, 415, { error: 'Send the report as JSON.' });
+        }
+        const body = await readJson(req, 8 * 1024);
+        // Honeypot: real visitors never see or fill the "website" field.
+        if (String(body?.website || '').trim()) return sendJson(res, 200, { ok: true });
+        const report = validateBugReport(body);
+        if (report.error) return sendJson(res, 400, { error: report.error });
+        if (!bugReportAllowed(clientIp(req), Date.now())) {
+          return sendJson(res, 429, { error: 'Too many reports. Please try again in a few minutes.' });
+        }
+        try {
+          await (hooks.forwardBugReport || ((r) => forwardToFormspree(formId, r)))({
+            ...report,
+            userAgent: String(req.headers['user-agent'] || '').slice(0, 300),
+          });
+        } catch (err) {
+          console.error('Bug report delivery failed:', err.message || err);
+          return sendJson(res, 502, { error: 'Could not send the report right now. Please try again later.' });
+        }
+        return sendJson(res, 200, { ok: true });
+      }
 
       if (pathname.startsWith('/api/admin/')) {
-        if (!requireAdmin(req, res)) return;
+        if (!(await requireAdmin(req, res))) return;
 
         if (req.method === 'GET' && pathname === '/api/admin/stats') {
           return sendJson(res, 200, {
             ...buildAdminPayload(client, queue, hooks),
-            accessEmail: getCloudflareIdentity(req) || null,
+            accessEmail: (await getCloudflareIdentity(req)) || null,
           });
         }
         if (req.method === 'GET' && pathname === '/api/admin/guilds') {
@@ -452,6 +612,9 @@ function createDashboardServer(client, queue, hooks = {}) {
         }
         if (pathname === '/api/admin/settings') {
           const guildId = url.searchParams.get('guildId') || null;
+          if (guildId && !SNOWFLAKE_RE.test(guildId)) {
+            return sendJson(res, 400, { error: 'guildId must be a Discord server ID.' });
+          }
           if (req.method === 'GET') {
             return sendJson(res, 200, {
               defaults: settings.getDefaults(),
@@ -493,7 +656,8 @@ function createDashboardServer(client, queue, hooks = {}) {
     } catch (error) {
       const status = error.statusCode || 500;
       if (status >= 500) console.error('Dashboard request error:', error?.message || error);
-      return sendJson(res, status, { error: error.message || 'Request failed.' });
+      // Internal error details stay in the server log.
+      return sendJson(res, status, { error: status >= 500 ? 'Request failed.' : (error.message || 'Request failed.') });
     }
   });
 
@@ -511,6 +675,7 @@ function startDashboardServer(client, queue, hooks = {}) {
 module.exports = {
   buildDiscordInviteUrl,
   buildPublicPayload,
+  createAccessVerifier,
   createDashboardServer,
   isAdminRequest,
   startDashboardServer,

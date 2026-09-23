@@ -41,4 +41,5 @@ When running your own instance:
 1. **Never commit `.env` or secrets**: Keep `TOKEN`, `ADMIN_TOKEN`, and `TUNNEL_TOKEN` strictly in your local `.env` file or secure secret store.
 2. **Use Strong Admin Tokens**: Set `ADMIN_TOKEN` to a cryptographically strong string of at least 24 random characters.
 3. **Restrict Network Exposure**: When using Cloudflare Tunnel, bind host port `8080` to `127.0.0.1` (`DASHBOARD_BIND_ADDRESS=127.0.0.1`) and remove external firewall access to port `8080`.
-4. **Protect Cookies**: If using YouTube cookies (`cookies.txt`), use a throwaway account and keep the file permissions restricted (`chmod 600 data/cookies.txt`).
+4. **Verify Cloudflare Access JWTs**: Set `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` so the dashboard cryptographically verifies Access identities instead of trusting request headers.
+5. **Protect Cookies**: If using YouTube cookies (`cookies.txt`), use a throwaway account and keep the file permissions restricted (`chmod 600 data/cookies.txt`).

@@ -1,8 +1,11 @@
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const { after, before, test } = require('node:test');
 
 process.env.ADMIN_TOKEN = 'test-admin-token';
-const { buildDiscordInviteUrl, buildPublicPayload, createDashboardServer, isAdminRequest } = require('../server');
+const {
+  buildDiscordInviteUrl, buildPublicPayload, createAccessVerifier, createDashboardServer, isAdminRequest,
+} = require('../server');
 
 class MockCollection extends Map {
   reduce(callback, initial) {
@@ -81,20 +84,53 @@ test('public payload contains useful aggregates and public server showcase witho
   assert.equal(payload.system, undefined);
 });
 
-test('admin token comparison accepts bearer and legacy header tokens', () => {
-  assert.equal(isAdminRequest({ headers: { authorization: 'Bearer secret' } }, 'secret'), true);
-  assert.equal(isAdminRequest({ headers: { 'x-admin-token': 'secret' } }, 'secret'), true);
-  assert.equal(isAdminRequest({ headers: { authorization: 'Bearer wrong' } }, 'secret'), false);
+test('admin token comparison accepts bearer and legacy header tokens', async () => {
+  assert.equal(await isAdminRequest({ headers: { authorization: 'Bearer secret' } }, 'secret', null), true);
+  assert.equal(await isAdminRequest({ headers: { 'x-admin-token': 'secret' } }, 'secret', null), true);
+  assert.equal(await isAdminRequest({ headers: { authorization: 'Bearer wrong' } }, 'secret', null), false);
 });
 
-test('Cloudflare Access identity authorizes tunneled admin requests', () => {
+test('without Access verification configured, tunneled Access headers are trusted', async () => {
   const accessHeaders = {
     'cf-access-authenticated-user-email': 'admin@example.com',
     'cf-access-jwt-assertion': 'signed-access-assertion',
     'cf-ray': 'preview-ray',
   };
-  assert.equal(isAdminRequest({ headers: accessHeaders }, ''), true);
-  assert.equal(isAdminRequest({ headers: { 'cf-access-authenticated-user-email': 'spoof@example.com' } }, ''), false);
+  assert.equal(await isAdminRequest({ headers: accessHeaders }, '', null), true);
+  assert.equal(await isAdminRequest({ headers: { 'cf-access-authenticated-user-email': 'spoof@example.com' } }, '', null), false);
+});
+
+test('with Access verification configured, only a validly signed JWT authorizes', async () => {
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const { privateKey: otherKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const jwk = { ...publicKey.export({ format: 'jwk' }), kid: 'k1', alg: 'RS256' };
+  const nowMs = Date.UTC(2026, 0, 1);
+  const verifier = createAccessVerifier({
+    teamDomain: 'team.cloudflareaccess.com',
+    aud: 'app-aud',
+    fetchKeys: async () => ({ keys: [jwk] }),
+    now: () => nowMs,
+  });
+  const sign = (claims, key = privateKey, kid = 'k1') => {
+    const enc = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
+    const body = `${enc({ alg: 'RS256', kid })}.${enc(claims)}`;
+    return `${body}.${crypto.sign('RSA-SHA256', Buffer.from(body), key).toString('base64url')}`;
+  };
+  const good = {
+    aud: ['app-aud'], iss: 'https://team.cloudflareaccess.com',
+    email: 'admin@example.com', exp: nowMs / 1000 + 600,
+  };
+  const request = (jwt) => ({ headers: {
+    'cf-access-authenticated-user-email': 'admin@example.com', 'cf-access-jwt-assertion': jwt, 'cf-ray': 'r',
+  } });
+
+  assert.equal(await isAdminRequest(request(sign(good)), '', verifier), true);
+  assert.equal(await isAdminRequest(request('signed-access-assertion'), '', verifier), false);
+  assert.equal(await isAdminRequest(request(sign(good, otherKey)), '', verifier), false);
+  assert.equal(await isAdminRequest(request(sign({ ...good, aud: ['other-app'] })), '', verifier), false);
+  assert.equal(await isAdminRequest(request(sign({ ...good, iss: 'https://evil.example' })), '', verifier), false);
+  assert.equal(await isAdminRequest(request(sign({ ...good, exp: nowMs / 1000 - 1 })), '', verifier), false);
+  assert.equal(await isAdminRequest(request(sign(good, privateKey, 'unknown-kid')), '', verifier), false);
 });
 
 let dashboard;
@@ -211,4 +247,54 @@ test('admin can read and update the Discord bot presence', async () => {
   assert.deepEqual(await updated.json(), {
     ok: true, mode: 'custom', status: 'idle', activityType: 'listening', activityText: 'your requests',
   });
+});
+
+test('bug reports are validated, rate-limited, and relayed without exposing the form', async () => {
+  const sent = [];
+  const server = createDashboardServer(client, queue, {
+    ...hooks,
+    bugReportFormId: 'testform',
+    forwardBugReport: async (report) => { sent.push(report); },
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  const post = (body, headers = {}) => fetch(`${url}/api/public/bug-report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  });
+  const valid = { email: 'fan@example.com', message: 'Skip button does nothing.' };
+
+  try {
+    const status = await (await fetch(`${url}/api/public/status`)).json();
+    assert.equal(status.bugReports, true);
+    assert.doesNotMatch(JSON.stringify(status), /testform/);
+
+    assert.equal((await post({ ...valid, email: 'not-an-email' })).status, 400);
+    assert.equal((await post({ ...valid, message: 'short' })).status, 400);
+    assert.equal((await post(valid, { Origin: 'https://evil.example' })).status, 403);
+    assert.equal((await fetch(`${url}/api/public/bug-report`, { method: 'POST', body: 'x' })).status, 415);
+
+    const honeypot = await post({ ...valid, website: 'spam.example' });
+    assert.equal(honeypot.status, 200);
+    assert.equal(sent.length, 0);
+
+    for (let i = 0; i < 3; i += 1) assert.equal((await post(valid)).status, 200);
+    assert.equal((await post(valid)).status, 429);
+    assert.equal(sent.length, 3);
+    assert.equal(sent[0].email, 'fan@example.com');
+    assert.equal(sent[0].message, 'Skip button does nothing.');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('bug reports are off when no Formspree form is configured', async () => {
+  const response = await fetch(`${baseUrl}/api/public/bug-report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'fan@example.com', message: 'Skip button does nothing.' }),
+  });
+  assert.equal(response.status, 503);
+  assert.equal((await (await fetch(`${baseUrl}/api/public/status`)).json()).bugReports, false);
 });

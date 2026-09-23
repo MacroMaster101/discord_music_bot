@@ -20,8 +20,8 @@
   <title>Discord Music · Live</title>
   <link rel="icon" href="/assets/favicon.png" type="image/png" sizes="256x256">
   <link rel="apple-touch-icon" href="/assets/logo.png">
-  <link rel="stylesheet" href="/assets/app.css?v=1.0.2">
-  <script src="/assets/public.js?v=1.0.2" defer></script>
+  <link rel="stylesheet" href="/assets/app.css?v=1.0.4">
+  <script src="/assets/public.js?v=1.0.3" defer></script>
 </head>
 <body class="public-page">
   <div class="ambient ambient-one"></div>
@@ -149,5 +149,37 @@
 
     <footer><span class="footer-brand"><img src="/assets/favicon.png" alt="">Discord Music</span><span>Powered by Discord, yt-dlp &amp; Cloudflare Tunnel</span><span class="footer-actions"><a href="/invite" target="_blank" rel="noopener noreferrer">Add bot ↗</a><a href="/login">Admin console →</a></span></footer>
   </div>
+
+  <button class="bug-fab" id="bug-open" type="button" aria-haspopup="dialog" aria-label="Report a bug" hidden>
+    <span aria-hidden="true">🐞</span>
+    <span class="bug-fab-tip" aria-hidden="true">Report a bug</span>
+  </button>
+
+  <dialog class="bug-dialog" id="bug-dialog" aria-labelledby="bug-title">
+    <form id="bug-form" novalidate>
+      <div class="bug-dialog-head">
+        <div><span class="kicker">FEEDBACK</span><h2 id="bug-title">Report a bug</h2></div>
+        <button class="bug-close" type="button" id="bug-cancel" aria-label="Close">×</button>
+      </div>
+      <p class="bug-intro">Tell us what went wrong. We'll reply to the email you enter.</p>
+      <div class="field">
+        <label for="bug-email">Your email</label>
+        <input id="bug-email" name="email" type="email" autocomplete="email" maxlength="254" required placeholder="you@example.com">
+      </div>
+      <div class="field">
+        <label for="bug-message">What happened? <output id="bug-count">0 / 2000</output></label>
+        <textarea id="bug-message" name="message" rows="6" minlength="10" maxlength="2000" required placeholder="What you did, what you expected, and what happened instead."></textarea>
+      </div>
+      <div class="bug-honeypot" aria-hidden="true">
+        <label for="bug-website">Website</label>
+        <input id="bug-website" name="website" type="text" tabindex="-1" autocomplete="off">
+      </div>
+      <p class="bug-status" id="bug-status" role="status" aria-live="polite"></p>
+      <div class="bug-actions">
+        <button class="button button-quiet" type="button" id="bug-dismiss">Cancel</button>
+        <button class="button button-primary" type="submit" id="bug-submit">Send report</button>
+      </div>
+    </form>
+  </dialog>
 </body>
 </html>
