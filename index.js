@@ -166,7 +166,37 @@ function getYtdlpBaseOptions(playerClientOverride) {
 // youtube-dl-exec exposes the spawned process methods on its returned promise.
 // Kill a stalled extractor so one bad YouTube client cannot leave !play hanging
 // forever with the bot connected but silent.
+// yt-dlp is a heavy Python process. When many servers start songs at once,
+// running them all in parallel starves ffmpeg of CPU and every stream stutters,
+// so at most YTDLP_MAX_CONCURRENT run at a time and the rest wait their turn.
+const YTDLP_MAX_CONCURRENT = Math.max(1, Number(process.env.YTDLP_MAX_CONCURRENT) || 2);
+let ytdlpActive = 0;
+const ytdlpWaiting = [];
+
+function acquireYtdlpSlot() {
+  if (ytdlpActive < YTDLP_MAX_CONCURRENT) {
+    ytdlpActive += 1;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => ytdlpWaiting.push(resolve));
+}
+
+function releaseYtdlpSlot() {
+  const next = ytdlpWaiting.shift();
+  if (next) next(); // hand the slot straight to the next waiter
+  else ytdlpActive -= 1;
+}
+
 async function runYtdlp(url, options, timeoutMs = YTDLP_ATTEMPT_TIMEOUT_MS) {
+  await acquireYtdlpSlot();
+  try {
+    return await runYtdlpNow(url, options, timeoutMs);
+  } finally {
+    releaseYtdlpSlot();
+  }
+}
+
+async function runYtdlpNow(url, options, timeoutMs) {
   const task = youtubedl(url, options);
   let timer;
   const timeout = new Promise((_, reject) => {
@@ -532,11 +562,9 @@ client.on('interactionCreate', async (interaction) => {
 
   if (interaction.customId.startsWith('np_vol:')) {
     const delta = parseInt(interaction.customId.split(':')[1], 10);
-    const current = Math.round((serverQueue.targetVolume ?? 0.5) * 100);
+    const current = getVolume(serverQueue);
     const target = Math.max(0, Math.min(100, current + delta));
-    serverQueue.targetVolume = target / 100;
-    const resource = serverQueue.player.state?.resource;
-    if (resource?.volume) resource.volume.setVolume(target / 100);
+    applyVolume(interaction.guild.id, serverQueue, target / 100);
     const song = serverQueue.songs[0];
     if (song && serverQueue.nowPlayingMessage) {
       serverQueue.nowPlayingMessage.edit({
@@ -1111,6 +1139,19 @@ function maybePrefetchNextSong(serverQueue) {
     });
 }
 
+// YouTube stream URLs carry an `expire` timestamp (usually ~6 hours out).
+// Reusing one skips a multi-second yt-dlp run, which makes seeks, volume
+// changes, Previous and prefetched songs start almost instantly.
+function hasFreshAudioUrl(song) {
+  if (!song?.prefetchedAudioUrl) return false;
+  let expiresAt = 0;
+  try {
+    expiresAt = Number(new URL(song.prefetchedAudioUrl).searchParams.get('expire')) * 1000;
+  } catch {}
+  if (!expiresAt) expiresAt = (song.prefetchedAt || 0) + 3 * 3600 * 1000;
+  return expiresAt - Date.now() > 10 * 60 * 1000;
+}
+
 async function playSong(guildId, song, seekSeconds = 0) {
   const serverQueue = queue.get(guildId);
   if (!serverQueue || !song) return;
@@ -1136,11 +1177,12 @@ async function playSong(guildId, song, seekSeconds = 0) {
     serverQueue.pausedAt = null;
     serverQueue.seekOffset = seekSeconds;
 
-    // Use prefetched audio stream if available and fresh (< 3 hours old), otherwise resolve live.
-    const isPrefetchFresh = song.prefetchedAudioUrl && (Date.now() - (song.prefetchedAt || 0) < 3 * 3600 * 1000);
-    const audioUrl = (isPrefetchFresh && seekSeconds === 0)
-      ? song.prefetchedAudioUrl
-      : await getAudioUrl(await getPlayableUrl(song));
+    let audioUrl = hasFreshAudioUrl(song) ? song.prefetchedAudioUrl : null;
+    if (!audioUrl) {
+      audioUrl = await getAudioUrl(await getPlayableUrl(song));
+      song.prefetchedAudioUrl = audioUrl;
+      song.prefetchedAt = Date.now();
+    }
 
     if (!audioUrl) {
       throw new Error('yt-dlp did not return an audio URL');
@@ -1161,15 +1203,32 @@ async function playSong(guildId, song, seekSeconds = 0) {
     if (seekSeconds > 0) {
       ffmpegArgs.push('-ss', String(seekSeconds));
     }
+    const vol = serverQueue.targetVolume ?? (getDefaultVolume(guildId) / 100);
+    serverQueue.targetVolume = vol;
+    // ffmpeg applies the volume and encodes Opus in its own process, and the
+    // bot only forwards ready-made packets. Encoding and scaling PCM inside the
+    // bot ran on its single thread for every server at once, which made all
+    // streams stutter when several servers played together.
     ffmpegArgs.push(
       '-i', audioUrl,
       '-vn',
       '-probesize', '65536',
       '-analyzeduration', '1000000',
       '-loglevel', 'warning',
-      '-f', 's16le',
+    );
+    if (Math.abs(vol - 1) > 0.001) ffmpegArgs.push('-af', `volume=${vol.toFixed(2)}`);
+    ffmpegArgs.push(
+      '-c:a', 'libopus',
+      '-b:a', '128k',
+      '-vbr', 'on',
+      '-application', 'audio',
+      '-frame_duration', '20',
+      // Forward error correction helps conceal occasional voice-packet loss.
+      '-fec', '1',
+      '-packet_loss', '10',
       '-ar', '48000',
       '-ac', '2',
+      '-f', 'ogg',
       'pipe:1',
     );
 
@@ -1195,23 +1254,12 @@ async function playSong(guildId, song, seekSeconds = 0) {
     });
 
     const resource = createAudioResource(ffmpeg.stdout, {
-      inputType: StreamType.Raw,
-      inlineVolume: true,
+      inputType: StreamType.OggOpus,
       metadata: {
         title: song.title,
         playToken: myToken,
       },
     });
-
-    // Native @discordjs/opus is preferred in production. FEC helps conceal
-    // occasional voice-packet loss without changing the playback pipeline.
-    resource.encoder?.setBitrate(128000);
-    resource.encoder?.setFEC(true);
-    resource.encoder?.setPLP(0.1);
-
-    const vol = serverQueue.targetVolume ?? (getDefaultVolume(guildId) / 100);
-    serverQueue.targetVolume = vol;
-    resource.volume?.setVolume(vol);
     // Start the visible clock when audio is handed to Discord, not while yt-dlp
     // is still resolving the stream URL.
     serverQueue.playbackStartedAt = Date.now() - (seekSeconds * 1000);
@@ -1684,6 +1732,19 @@ function pausePlayer(serverQueue) {
 }
 
 function resumePlayer(serverQueue) {
+  if (serverQueue?.volumeDirty && serverQueue.songs?.[0] && serverQueue.pausedAt) {
+    // Volume changed while paused: restart at the paused position with it.
+    const guildId = serverQueue.textChannel?.guild?.id;
+    const at = getElapsedSeconds(serverQueue);
+    serverQueue.volumeDirty = false;
+    serverQueue.pausedAt = null;
+    if (guildId) {
+      playSong(guildId, serverQueue.songs[0], at).catch((err) => {
+        console.error('Resume with new volume failed:', err?.message || err);
+      });
+      return true;
+    }
+  }
   const resumed = serverQueue?.player?.unpause();
   if (resumed && serverQueue.pausedAt) {
     serverQueue.playbackStartedAt += Date.now() - serverQueue.pausedAt;
@@ -1792,6 +1853,10 @@ async function showOrUpdateNowPlaying(serverQueue, song) {
   startNowPlayingTicker(serverQueue);
 }
 
+// Each refresh is a Discord API edit per playing server; every 2s added up to a
+// lot of background traffic and rate limiting as more servers played.
+const NOW_PLAYING_REFRESH_MS = 10_000;
+
 function startNowPlayingTicker(serverQueue) {
   stopNowPlayingTicker(serverQueue);
   serverQueue.nowPlayingTicker = setInterval(async () => {
@@ -1810,7 +1875,7 @@ function startNowPlayingTicker(serverQueue) {
     } catch (err) {
       stopNowPlayingTicker(serverQueue);
     }
-  }, 2000);
+  }, NOW_PLAYING_REFRESH_MS);
 }
 
 function stopNowPlayingTicker(serverQueue) {
@@ -1939,11 +2004,30 @@ function nowPlaying(message, serverQueue) {
 }
 
 function getVolume(serverQueue) {
-  const resource = serverQueue.player.state?.resource;
-  if (resource?.volume) {
-    return Math.round(resource.volume.volume * 100);
+  const guildId = serverQueue?.textChannel?.guild?.id;
+  const volume = serverQueue?.targetVolume ?? (guildId ? getDefaultVolume(guildId) / 100 : 1);
+  return Math.round(volume * 100);
+}
+
+// Volume is applied by ffmpeg, so a change restarts the stream at the current
+// position (fast, because the audio URL is reused). Rapid +/- taps are merged
+// into one restart; while paused the change waits for resume.
+function applyVolume(guildId, serverQueue, fraction) {
+  serverQueue.targetVolume = fraction;
+  const song = serverQueue.songs[0];
+  if (!song || !serverQueue.currentResource) return; // used when the next stream starts
+  if (serverQueue.pausedAt) {
+    serverQueue.volumeDirty = true;
+    return;
   }
-  return 50;
+  clearTimeout(serverQueue.volumeTimer);
+  serverQueue.volumeTimer = setTimeout(() => {
+    const q = queue.get(guildId);
+    if (!q || q.stopped || q.songs[0] !== song || q.pausedAt) return;
+    playSong(guildId, song, getElapsedSeconds(q)).catch((err) => {
+      console.error('Volume restart failed:', err?.message || err);
+    });
+  }, 700);
 }
 
 // ──── Volume ────
@@ -2263,9 +2347,7 @@ function volumeCore(guildId, percent) {
   let v = Math.floor(Number(percent));
   if (!Number.isFinite(v)) return { ok: false, error: 'Bad volume.' };
   v = Math.max(0, Math.min(200, v));
-  sq.targetVolume = v / 100;
-  const resource = sq.player.state?.resource;
-  if (resource?.volume) resource.volume.setVolume(v / 100);
+  applyVolume(guildId, sq, v / 100);
   return { ok: true, volume: v };
 }
 function loopCore(guildId) {

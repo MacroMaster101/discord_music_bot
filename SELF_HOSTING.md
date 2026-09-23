@@ -45,6 +45,7 @@ Copy `.env.example` to `.env` and fill it in. `.env` is never committed.
 | `FORMSPREE_FORM_ID` | optional | Turns on the public **Report a bug** button. Only the ID after `/f/` in the [Formspree](https://formspree.io) endpoint. Turn reCAPTCHA off and leave domain restrictions empty in the form's settings, because the server sends the reports. |
 | `BGUTIL_BASE_URL` | optional | PO-token provider URL (default `http://bgutil-provider:4416`). |
 | `YTDLP_COOKIES_PATH` / `YTDLP_COOKIES_BASE64` | optional | YouTube cookies for login-restricted videos (see below). |
+| `YTDLP_MAX_CONCURRENT` | optional | How many YouTube lookups may run at once (default `2`). Raise it on a server with more CPU. |
 | `VM_MEMORY_MB` | optional | Memory ceiling shown in the admin console (default `2048`). |
 
 ### Changing `.env` on a running server

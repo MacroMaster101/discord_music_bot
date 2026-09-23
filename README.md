@@ -80,6 +80,12 @@ J4FN Music is open source and self-hostable with Docker. The [self-hosting guide
 
 ---
 
+## 📰 What's new
+
+See the [changelog](CHANGELOG.md) for every release.
+
+---
+
 ## 📄 License
 
 MIT. See [LICENSE](LICENSE).

@@ -82,4 +82,5 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
 - **Testing**:
   - Add or update tests in `test/` when changing API payloads, authentication, Spotify handling, or resume-after-restart.
 - **Documentation**:
+  - Add a line to `CHANGELOG.md` describing user-visible changes.
   - Update `README.md` for anything users see (commands, features) and `SELF_HOSTING.md` for configuration, environment variables, or deployment changes.

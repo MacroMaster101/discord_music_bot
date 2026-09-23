@@ -309,8 +309,7 @@ function readJson(req, maxBytes = 32 * 1024) {
 }
 
 function getVolume(serverQueue) {
-  const resource = serverQueue?.player?.state?.resource;
-  return resource?.volume ? Math.round(resource.volume.volume * 100) : 50;
+  return Math.round((serverQueue?.targetVolume ?? 1) * 100);
 }
 
 function getBotIdentity(client) {
