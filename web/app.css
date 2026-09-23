@@ -14,6 +14,7 @@
   --green: #4ee6a8;
   --yellow: #ffc857;
   --red: #ff637d;
+  --spotify: #1ed760;
   --radius: 22px;
   --shadow: 0 30px 90px rgba(0, 0, 0, .42);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -156,6 +157,20 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .command-grid article { min-height: 112px; padding: 19px; border-radius: 15px; background: rgba(255,255,255,.022); border: 1px solid var(--line); transition: transform .18s, border-color .18s; }
 .command-grid article:hover { transform: translateY(-2px); border-color: var(--line-hot); }
 .command-grid code { color: var(--pink); font-size: 12px; font-weight: 800; }
+/* "What's new" announcement: hero pill + featured command card */
+.announce { display: inline-flex; align-items: center; gap: 9px; max-width: 100%; margin-bottom: 24px; padding: 5px 14px 5px 5px; color: var(--ink); text-decoration: none; font-size: 12.5px; font-weight: 650; line-height: 1.35; border: 1px solid rgba(30,215,96,.3); border-radius: 99px; background: rgba(30,215,96,.07); transition: border-color .18s, background .18s; }
+.announce:hover { border-color: rgba(30,215,96,.55); background: rgba(30,215,96,.12); }
+.announce:focus-visible { outline: 2px solid var(--spotify); outline-offset: 3px; }
+.announce svg, .command-feature-head svg { width: 15px; height: 15px; flex: none; color: var(--spotify); }
+.announce-tag { flex: none; padding: 3px 8px; color: #06140b; background: var(--spotify); border-radius: 99px; font-size: 10px; font-weight: 850; letter-spacing: .08em; }
+.announce-arrow { flex: none; color: var(--muted); transition: transform .18s; }
+.announce:hover .announce-arrow { transform: translateX(3px); color: var(--ink); }
+.command-grid .command-feature { grid-column: 1 / -1; min-height: 0; scroll-margin-top: 24px; background: linear-gradient(115deg, rgba(30,215,96,.1), rgba(139,109,255,.05) 65%); border-color: rgba(30,215,96,.28); }
+.command-grid .command-feature:hover { border-color: rgba(30,215,96,.5); }
+.command-feature-head { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
+.command-feature-head strong { font-size: 15px; }
+.command-grid .command-feature code { color: var(--spotify); }
+.command-grid .command-feature p { max-width: 720px; }
 .command-grid p { margin: 11px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .invite-section { position: relative; isolation: isolate; margin-top: 28px; padding: clamp(34px, 5vw, 64px); display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(260px, .75fr); align-items: center; gap: clamp(38px, 7vw, 86px); overflow: hidden; border: 1px solid var(--line-hot); border-radius: var(--radius); background: linear-gradient(130deg, rgba(139,109,255,.13), rgba(255,79,184,.055) 62%, rgba(255,255,255,.02)); box-shadow: var(--shadow); }
 .invite-section::before { content: ""; position: absolute; z-index: -1; width: 420px; height: 420px; right: -170px; bottom: -250px; border-radius: 50%; background: var(--pink); filter: blur(110px); opacity: .15; }
@@ -347,6 +362,8 @@ input[type=range] { width: 100%; accent-color: var(--violet); }
 .bug-actions { display: flex; justify-content: flex-end; gap: 10px; }
 @media (max-width: 640px) {
   .bug-fab { right: 16px; bottom: 16px; width: 48px; height: 48px; font-size: 20px; }
+  .announce { align-items: flex-start; font-size: 12px; }
+  .announce svg, .announce-arrow { margin-top: 2px; }
   .bug-dialog form { padding: 20px; }
   .bug-actions .button { flex: 1; }
 }

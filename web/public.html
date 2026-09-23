@@ -20,7 +20,7 @@
   <title>Discord Music · Live</title>
   <link rel="icon" href="/assets/favicon.png" type="image/png" sizes="256x256">
   <link rel="apple-touch-icon" href="/assets/logo.png">
-  <link rel="stylesheet" href="/assets/app.css?v=1.0.4">
+  <link rel="stylesheet" href="/assets/app.css?v=1.0.5">
   <script src="/assets/public.js?v=1.0.3" defer></script>
 </head>
 <body class="public-page">
@@ -45,6 +45,12 @@
     <main>
       <section class="hero" id="status">
         <div class="hero-copy">
+          <a class="announce" href="#spotify">
+            <span class="announce-tag">NEW</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="11" fill="currentColor"/><path d="M6.6 9.1c3.6-1.1 7.6-.8 10.9 1M7.3 12.3c2.9-.8 6-.5 8.6.9M8 15.3c2.2-.5 4.4-.3 6.3.7" fill="none" stroke="#07060b" stroke-width="1.7" stroke-linecap="round"/></svg>
+            <span class="announce-text">Spotify links now play: tracks, albums &amp; playlists</span>
+            <span class="announce-arrow" aria-hidden="true">→</span>
+          </a>
           <div class="eyebrow"><span class="live-dot"></span><span id="hero-state">Checking the signal</span></div>
           <h1>One bot.<br><span>Every room in rhythm.</span></h1>
           <p>Follow the music bot in real time—service health, current tracks, activity trends, and the commands that keep the queue moving.</p>
@@ -108,9 +114,14 @@
       <section class="section" id="commands">
         <div class="section-heading"><div><span class="kicker">QUICK START</span><h2>Run the room</h2></div><span class="updated">Prefix <code id="command-prefix">!</code></span></div>
         <div class="command-grid">
-          <article><code data-command="play <song>">!play &lt;song&gt;</code><p>Search YouTube or play a URL.</p></article>
+          <article class="command-feature" id="spotify">
+            <div class="command-feature-head"><span class="announce-tag">NEW</span><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="11" fill="currentColor"/><path d="M6.6 9.1c3.6-1.1 7.6-.8 10.9 1M7.3 12.3c2.9-.8 6-.5 8.6.9M8 15.3c2.2-.5 4.4-.3 6.3.7" fill="none" stroke="#07060b" stroke-width="1.7" stroke-linecap="round"/></svg><strong>Spotify links are here</strong></div>
+            <code data-command="play <spotify link>">!play &lt;spotify link&gt;</code>
+            <p>Paste a Spotify track, album, or playlist link. The bot reads the songs from Spotify and plays the best-matching audio. Albums and playlists queue up to 100 tracks.</p>
+          </article>
+          <article><code data-command="play <song>">!play &lt;song&gt;</code><p>Search, or paste a YouTube or Spotify link.</p></article>
           <article><code data-command="search <query>">!search &lt;query&gt;</code><p>Choose from the top matches.</p></article>
-          <article><code data-command="playlist <url>">!playlist &lt;url&gt;</code><p>Queue a complete playlist.</p></article>
+          <article><code data-command="playlist <url>">!playlist &lt;url&gt;</code><p>Queue a YouTube playlist, or a Spotify album or playlist.</p></article>
           <article><code data-command="queue">!queue</code><p>See what is coming next.</p></article>
           <article><code data-command="nowplaying">!nowplaying</code><p>Open the live progress card.</p></article>
           <article><code data-command="seek 1:30">!seek 1:30</code><p>Jump to a specific moment.</p></article>
