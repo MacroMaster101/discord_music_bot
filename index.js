@@ -8,6 +8,7 @@ const settings = require('./settings');
 const {
   SpotifyError, createSpotifyClient, isSpotifyLink, parseSpotifyLink, pickBestYouTubeMatch, youTubeQueryFor,
 } = require('./spotify');
+const { loadSnapshots, resumePosition, saveSnapshots, snapshotQueue } = require('./resume');
 
 settings.load();
 
@@ -228,6 +229,9 @@ client.once('clientReady', async () => {
   } catch (err) {
     console.error('Could not start Web Dashboard Server:', err);
   }
+
+  // Pick up any music that was playing when the bot last shut down (deploys).
+  resumeSavedQueues().catch((err) => console.error('Resume failed:', err));
 
   // Reset bot nickname in all guilds to the original app name
   for (const [, guild] of client.guilds.cache) {
@@ -742,7 +746,9 @@ async function appendAndMaybePlay(guildId, serverQueue, song, statusMsg) {
 }
 
 // Build queue, join VC, play first song. statusMsg used as the single visible status line.
-async function bootstrapAndPlay(message, voiceChannel, song, statusMsg) {
+// `options` is used when resuming after a restart: the rest of the queue, loop
+// mode, volume, history, and where in the first song to start.
+async function bootstrapAndPlay(message, voiceChannel, song, statusMsg, options = {}) {
   const guildId = message.guild.id;
   const queueConstruct = {
     textChannel: message.channel,
@@ -753,8 +759,8 @@ async function bootstrapAndPlay(message, voiceChannel, song, statusMsg) {
     advancingSongId: null,
     idleTimeout: null,
     stopped: false,
-    loop: null,
-    history: [], // songs that finished or were skipped, newest last (for Previous)
+    loop: options.loop || null,
+    history: options.history || [], // songs that finished or were skipped, newest last (for Previous)
     player: createAudioPlayer({
       behaviors: { noSubscriber: NoSubscriberBehavior.Play },
     }),
@@ -765,7 +771,8 @@ async function bootstrapAndPlay(message, voiceChannel, song, statusMsg) {
   // below. Otherwise a second !play arriving during connection setup sees an
   // empty queue and starts a racing playback, causing the current song to
   // stutter/restart.
-  queueConstruct.songs.push(song);
+  queueConstruct.songs.push(song, ...(options.rest || []));
+  if (Number.isFinite(options.volume)) queueConstruct.targetVolume = options.volume;
   queue.set(guildId, queueConstruct);
 
   let connection;
@@ -852,7 +859,7 @@ async function bootstrapAndPlay(message, voiceChannel, song, statusMsg) {
   // Song was already pushed before the connection await (see above). Keep the
   // status visible while yt-dlp prepares the stream; playSong posts the card.
   await statusMsg.edit('⏳ **Preparing audio stream...**').catch(() => {});
-  await playSong(guildId, song);
+  await playSong(guildId, song, options.startAt || 0);
   try { await statusMsg.delete(); } catch {}
 }
 
@@ -2365,6 +2372,80 @@ function getQueueProgress(serverQueue) {
       duration: s.duration || null,
     })),
   };
+}
+
+// ──── Resume after restart ────
+const RESUME_FILE = path.join(settings.DATA_DIR, 'resume.json');
+let shuttingDown = false;
+
+function restoreSong(saved) {
+  return { ...saved, id: createSongId(), streamUrl: null };
+}
+
+// Docker stops the container with SIGTERM (deploys, restarts). Save what every
+// server is playing so the next start can pick it up, then exit cleanly.
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`${signal} received, saving queues and shutting down...`);
+
+  const snapshots = [];
+  for (const [guildId, serverQueue] of queue) {
+    if (serverQueue.stopped || !serverQueue.songs.length) continue;
+    snapshots.push(snapshotQueue(guildId, serverQueue, getElapsedSeconds(serverQueue)));
+    // Mark stopped first so disconnect handlers don't post "lost connection".
+    serverQueue.stopped = true;
+    cleanupCurrentProcess(serverQueue);
+  }
+  try {
+    saveSnapshots(RESUME_FILE, snapshots);
+    console.log(`💾 Saved ${snapshots.length} queue(s) to resume after restart`);
+  } catch (err) {
+    console.error('Could not save queues for resume:', err.message || err);
+  }
+
+  try { await client.destroy(); } catch {}
+  process.exit(0);
+}
+process.once('SIGTERM', () => shutdown('SIGTERM'));
+process.once('SIGINT', () => shutdown('SIGINT'));
+
+async function resumeSavedQueues() {
+  const snapshots = loadSnapshots(RESUME_FILE);
+  for (const snapshot of snapshots) {
+    try {
+      const guild = client.guilds.cache.get(snapshot.guildId);
+      if (!guild || queue.has(guild.id)) continue;
+      const voiceChannel = guild.channels.cache.get(snapshot.voiceChannelId)
+        || await guild.channels.fetch(snapshot.voiceChannelId).catch(() => null);
+      const textChannel = guild.channels.cache.get(snapshot.textChannelId)
+        || await guild.channels.fetch(snapshot.textChannelId).catch(() => null);
+      if (!voiceChannel?.isVoiceBased?.() || !textChannel?.isTextBased?.()) continue;
+      // Nobody left to listen: don't rejoin an empty room.
+      if (!voiceChannel.members.some((member) => !member.user.bot)) continue;
+
+      const [first, ...rest] = snapshot.songs.map(restoreSong);
+      const startAt = resumePosition(snapshot);
+      const statusMsg = await textChannel.send(
+        `🔄 Back after a quick update: resuming **${first.title}**${startAt ? ` from ${formatTime(startAt)}` : ''}.`,
+      );
+      inflightPlay.add(guild.id);
+      try {
+        await bootstrapAndPlay({ guild, channel: textChannel }, voiceChannel, first, statusMsg, {
+          rest,
+          startAt,
+          loop: snapshot.loop,
+          volume: snapshot.volume,
+          history: snapshot.history.map(restoreSong),
+        });
+      } finally {
+        inflightPlay.delete(guild.id);
+      }
+      console.log(`▶️ Resumed ${snapshot.songs.length} song(s) in ${guild.name}`);
+    } catch (err) {
+      console.error(`Could not resume queue for guild ${snapshot.guildId}:`, err.message || err);
+    }
+  }
 }
 
 module.exports = {

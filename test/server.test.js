@@ -151,7 +151,7 @@ test('public page and API are reachable without an admin token', async () => {
   const page = await fetch(`${baseUrl}/`);
   assert.equal(page.status, 200);
   const pageHtml = await page.text();
-  assert.match(pageHtml, /Live status/);
+  assert.match(pageHtml, /Run the room/);
   assert.match(pageHtml, /Add Discord Music/);
   assert.match(pageHtml, /Joined servers/);
   assert.match(pageHtml, /id="public-servers"/);

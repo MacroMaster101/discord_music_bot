@@ -80,6 +80,6 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
   - Keep admin endpoints authenticated via Cloudflare Access or `ADMIN_TOKEN`.
   - Only YouTube URLs may reach `yt-dlp`/`ffmpeg`; never pass arbitrary user URLs or text that could be read as a command-line flag.
 - **Testing**:
-  - Add or update unit tests in `test/server.test.js` when modifying API payloads or authentication logic.
+  - Add or update tests in `test/` when changing API payloads, authentication, Spotify handling, or resume-after-restart.
 - **Documentation**:
-  - Update `README.md` if your change introduces new commands, environment variables, or architecture adjustments.
+  - Update `README.md` for anything users see (commands, features) and `SELF_HOSTING.md` for configuration, environment variables, or deployment changes.

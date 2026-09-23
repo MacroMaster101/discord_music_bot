@@ -155,6 +155,7 @@ function getDefaults() { return { ...DEFAULTS }; }
 function getKeys() { return Object.keys(DEFAULTS); }
 
 module.exports = {
+  DATA_DIR,
   load,
   get,
   getAll,

@@ -37,6 +37,9 @@ To help us triage and resolve the issue quickly, please provide:
 
 ## Security Best Practices for Self-Hosters
 
+See the [self-hosting guide](SELF_HOSTING.md) for full setup details.
+
+
 When running your own instance:
 1. **Never commit `.env` or secrets**: Keep `TOKEN`, `ADMIN_TOKEN`, and `TUNNEL_TOKEN` strictly in your local `.env` file or secure secret store.
 2. **Use Strong Admin Tokens**: Set `ADMIN_TOKEN` to a cryptographically strong string of at least 24 random characters.
