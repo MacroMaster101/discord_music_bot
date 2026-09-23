@@ -54,6 +54,7 @@ const hooks = {
     durationText: '3:00',
     upcoming: [{ title: 'Private Queue Item' }],
   }),
+  previousCore: (guildId) => ({ ok: guildId === guild.id, title: 'Earlier Song' }),
   getPresenceConfig: () => ({ ...presenceConfig }),
   setPresenceCore: (patch) => {
     presenceConfig = { ...presenceConfig, ...patch };
@@ -297,4 +298,14 @@ test('bug reports are off when no Formspree form is configured', async () => {
   });
   assert.equal(response.status, 503);
   assert.equal((await (await fetch(`${baseUrl}/api/public/status`)).json()).bugReports, false);
+});
+
+test('admin control routes the previous action to the bot', async () => {
+  const response = await fetch(`${baseUrl}/api/admin/control`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer test-admin-token', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ guildId: guild.id, action: 'previous' }),
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, title: 'Earlier Song' });
 });

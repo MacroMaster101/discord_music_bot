@@ -19,7 +19,7 @@ A premium, self-hostable Discord music player featuring a glassmorphic web dashb
 - 📂 **Playlist Handler** — Queue full YouTube playlists via `!playlist`.
 - 🟢 **Spotify Links** — Paste a Spotify track, album, or playlist link; the bot reads the song details from Spotify and plays the matching YouTube audio.
 - 🎤 **Lyrics Lookup** — `!lyrics` fetches lyrics for the current song.
-- 🎛️ **In-Chat Controls** — Tap message buttons to pause, skip, seek, adjust volume, and view the queue.
+- 🎛️ **In-Chat Controls** — Tap message buttons to pause, go back, skip, seek, adjust volume, and view the queue.
 - 🤖 **Playback Resilience** — Node JS runtime + an automatic **PO-token provider** sidecar, player-client fallback chains, and optional YouTube cookies for restricted playback environments.
 - ⏱️ **Auto Voice Manager** — Leaves empty rooms and pauses playback when alone.
 
@@ -51,6 +51,7 @@ Commands use your server's prefix (default: `!`).
 - `!playlist <URL>` (`!pl`) — Load and queue a full YouTube playlist, or a Spotify album or playlist.
 - `!pause` / `!resume` (`!unpause`) — Pause / resume.
 - `!skip` (`!s`) — Skip the current song.
+- `!previous` (`!prev`, `!back`) — Go back to the previous song (restarts the current one if there is nothing before it).
 - `!seek <time>` — Jump to a timestamp (e.g. `1:30` or `90`).
 - `!stop` (`!dc`, `!disconnect`) — Clear the queue and disconnect.
 - `!nowplaying` (`!np`) — Show the current track with control buttons.
