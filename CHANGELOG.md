@@ -2,10 +2,11 @@
 
 All notable changes to J4FN Music, newest first.
 
-## [Unreleased]
+## [1.2.0] - 2026-09-24
 
 ### New
-- **Slash commands.** Every command also works as a `/` command (`/play`, `/skip`, `/previous`, `/queue`, `/volume`, ...), with options shown as you type. They appear in the bot's profile under **Commands**. `!` commands keep working.
+- **Slash commands.** Every command also works as a `/` command (`/play`, `/skip`, `/previous`, `/queue`, `/volume`, ...), with options shown as you type. The bot's profile shows the **Supports Commands** badge, and its most-used commands appear there over time. `!` commands keep working.
+- The Now Playing card has a tip pointing to the `/` commands.
 
 ## [1.1.1] - 2026-09-23
 
@@ -41,6 +42,7 @@ All notable changes to J4FN Music, newest first.
 
 First release: YouTube playback with search, playlists, queue controls, lyrics, and interactive buttons; a public status page; and a protected admin console.
 
+[1.2.0]: https://github.com/MacroMaster101/discord_music_bot/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/MacroMaster101/discord_music_bot/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/MacroMaster101/discord_music_bot/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/MacroMaster101/discord_music_bot/releases/tag/v1.0.0

@@ -1982,7 +1982,8 @@ function buildNowPlayingEmbed(song, serverQueue) {
     .addFields(
       { name: 'Volume', value: `${getVolume(serverQueue)}%`, inline: true },
       { name: 'Queue', value: `${Math.max(0, serverQueue.songs.length - 1)} up next`, inline: true },
-    );
+    )
+    .setFooter({ text: 'Tip: type / to see all commands, like /play, /queue and /skip' });
   if (song.thumbnail) embed.setThumbnail(song.thumbnail);
   return embed;
 }
