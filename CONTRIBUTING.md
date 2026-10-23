@@ -67,8 +67,12 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
 
 ## Branches
 
-- `dev` is the integration branch. All feature and fix PRs target `dev`.
-- `main` is production: every push to `main` deploys to the live bot. It is protected by a ruleset (changes only through pull requests, the `test` CI check must pass, linear history, no force-push or deletion), and is updated by PRs from `dev`.
+- The flow is `feature/fix/dependency branch -> dev -> main`.
+- `dev` is the integration branch. Direct pushes are allowed for maintainers, and all feature, fix, and dependency-update PRs target `dev`. CI runs on pushes as well as PRs. Force-pushing and deleting `dev` are blocked.
+- `main` is the default and production branch. Only a PR from this repository's `dev` branch may target it; both `branch-policy` and `test` must pass, the branch must be up to date, and review conversations must be resolved. Direct pushes, force-pushes, and deletion are blocked.
+- Merge `dev -> main` using a merge commit so the integration history is retained. A separate workflow then synchronizes `main` back into `dev` without force-pushing. If concurrent work creates a merge conflict, resolve it on `dev` before promoting again.
+- Only pushes to `main` deploy to EC2. Feature and dependency PRs, pushes to `dev`, and branch synchronization do not deploy.
+- Dependabot checks npm packages, GitHub Actions, and Docker weekly and opens PRs against `dev`. Security-fix PRs open against the default branch (`main`), and the `Route Dependabot PRs to dev` workflow moves them to `dev`. Updates are reviewed and tested before a separate `dev -> main` release PR.
 
 ---
 

@@ -4,6 +4,13 @@ All notable changes to J4FN Music, newest first.
 
 ## [Unreleased]
 
+### Security
+- Resolved CodeQL findings: dashboard JSON escapes HTML characters, per-server settings can no longer write to object prototypes, the admin token parser avoids slow regex backtracking, client IPs are stripped of line breaks before logging, the yt-dlp cookies file is written to a private temporary directory, and YouTube links must use an exact YouTube host.
+
+### Maintenance
+- Standardized feature and dependency updates through `dev` before production PRs to `main`, with branch checks, weekly Dependabot updates, and automatic synchronization after production merges.
+- Dependabot no longer proposes `opusscript` 0.1+ (incompatible with `@discordjs/voice`) or major Node.js Docker image upgrades; the image stays on the Node 22 LTS line that CI tests. `main` is the default branch again, and Dependabot security PRs opened against it are moved to `dev` automatically.
+
 ### Fixed
 - Added a separate yt-dlp default-client fallback so playable combined WEB formats remain available when forced YouTube clients receive API 403 errors.
 - YouTube playback now preserves stream headers, uses yt-dlp's checked format, and tries another client when FFmpeg cannot start the audio. Now Playing appears only after the audio player starts.

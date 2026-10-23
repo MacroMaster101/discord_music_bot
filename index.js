@@ -115,9 +115,10 @@ function resolveCookiesPath() {
     return YTDLP_COOKIES_PATH;
   }
   if (YTDLP_COOKIES_BASE64) {
-    const tmpDir = os.tmpdir();
-    const cookiesFile = path.join(tmpDir, 'ytdlp_cookies.txt');
-    fs.writeFileSync(cookiesFile, Buffer.from(YTDLP_COOKIES_BASE64, 'base64'));
+    // A private, randomly named directory keeps other local users from reading or pre-creating the file.
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ytdlp-'));
+    const cookiesFile = path.join(tmpDir, 'cookies.txt');
+    fs.writeFileSync(cookiesFile, Buffer.from(YTDLP_COOKIES_BASE64, 'base64'), { mode: 0o600, flag: 'wx' });
     return cookiesFile;
   }
   return null;
@@ -1026,7 +1027,7 @@ function normalizeMediaUrl(input) {
     if (videoId) return `https://www.youtube.com/watch?v=${videoId}`;
   }
 
-  if (url.hostname.endsWith('youtube.com')) {
+  if (YOUTUBE_HOSTS.has(url.hostname.toLowerCase())) {
     const videoId = url.searchParams.get('v');
     if (videoId) return `https://www.youtube.com/watch?v=${videoId}`;
 

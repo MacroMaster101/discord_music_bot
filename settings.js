@@ -21,7 +21,9 @@ const DEFAULTS = {
 
 let state = {
   global: { ...DEFAULTS },
-  guilds: {}, // guildId -> partial overrides
+  // guildId -> partial overrides. A Map keeps request-supplied IDs such as
+  // "__proto__" from writing to object prototypes; it is saved as a plain object.
+  guilds: new Map(),
 };
 
 let saveTimer = null;
@@ -41,7 +43,7 @@ function load() {
       const raw = fs.readFileSync(SETTINGS_FILE, 'utf8');
       const parsed = JSON.parse(raw);
       state.global = { ...DEFAULTS, ...(parsed.global || {}) };
-      state.guilds = parsed.guilds || {};
+      state.guilds = new Map(Object.entries(parsed.guilds || {}));
       console.log(`⚙️  Settings loaded from ${SETTINGS_FILE}`);
     } else {
       console.log(`⚙️  No settings file yet, using defaults (will write to ${SETTINGS_FILE})`);
@@ -57,7 +59,8 @@ function scheduleSave() {
     saveTimer = null;
     try {
       ensureDir();
-      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(state, null, 2));
+      const saved = { global: state.global, guilds: Object.fromEntries(state.guilds) };
+      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(saved, null, 2));
     } catch (err) {
       console.error('Could not save settings:', err.message);
     }
@@ -65,16 +68,15 @@ function scheduleSave() {
 }
 
 function get(guildId, key) {
-  if (guildId && state.guilds[guildId] && state.guilds[guildId][key] != null) {
-    return state.guilds[guildId][key];
-  }
+  const overrides = guildId ? state.guilds.get(guildId) : null;
+  if (overrides && overrides[key] != null) return overrides[key];
   return state.global[key];
 }
 
 function getAll(guildId) {
   return {
     global: { ...state.global },
-    guild: guildId ? { ...(state.guilds[guildId] || {}) } : {},
+    guild: guildId ? { ...(state.guilds.get(guildId) || {}) } : {},
     effective: Object.fromEntries(Object.keys(DEFAULTS).map((k) => [k, get(guildId, k)])),
   };
 }
@@ -87,24 +89,22 @@ function setGlobal(patch) {
 
 function setGuild(guildId, patch) {
   // Explicit nulls mean "clear this override" — apply before sanitize so they don't get coerced
-  const clears = [];
-  for (const k of Object.keys(patch)) {
-    if (patch[k] === null) clears.push(k);
-  }
+  // Only known setting keys can be cleared.
+  const clears = Object.keys(DEFAULTS).filter((k) => patch[k] === null);
   const clean = sanitize(patch);
-  const current = { ...(state.guilds[guildId] || {}), ...clean };
+  const current = { ...(state.guilds.get(guildId) || {}), ...clean };
   for (const k of clears) delete current[k];
   if (Object.keys(current).length === 0) {
-    delete state.guilds[guildId];
+    state.guilds.delete(guildId);
   } else {
-    state.guilds[guildId] = current;
+    state.guilds.set(guildId, current);
   }
   scheduleSave();
-  return state.guilds[guildId] || {};
+  return state.guilds.get(guildId) || {};
 }
 
 function resetGuild(guildId) {
-  delete state.guilds[guildId];
+  state.guilds.delete(guildId);
   scheduleSave();
 }
 
