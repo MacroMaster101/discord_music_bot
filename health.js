@@ -125,7 +125,7 @@ function createDefaultChecks({
         const recent = (health.failures || []).filter((at) => now() - at < 15 * 60 * 1000);
         const lastOk = Number(health.lastSuccessAt || 0);
         const lastFail = Number(health.lastFailureAt || 0);
-        const via = health.playerClient ? ` · client ${health.playerClient}` : '';
+        const via = `${Number.isFinite(health.lastStartMs) ? ` in ${(health.lastStartMs / 1000).toFixed(1)}s` : ''}${health.playerClient ? ` · client ${health.playerClient}` : ''}`;
         if (recent.length && lastFail > lastOk) {
           const reason = health.lastFailureReason ? `: ${health.lastFailureReason}` : '';
           return { status: recent.length >= 3 ? 'down' : 'degraded', detail: `${recent.length} failed start(s) in 15m${reason}` };

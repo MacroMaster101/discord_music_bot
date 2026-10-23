@@ -10,7 +10,7 @@ const { test } = require('node:test');
 const { sendPlaybackNotice } = require('../playback-notifications');
 const {
   buildFfmpegArgs, hasFreshAudioStream, prepareAudio, redactMediaUrls,
-  selectAudioStream, spawnAudioProcess, waitForAudio,
+  selectAudioStream, spawnAudioProcess, untilAborted, waitForAudio, waitForResourcePlaying,
 } = require('../audio');
 
 test('keeps the checked HLS selection and its headers instead of repicking a rejected WebM', () => {
@@ -62,7 +62,10 @@ function extractorConfig(cookies = null, manualToken = null) {
     section('function getYtdlpBaseOptions(', '// youtube-dl-exec exposes'),
     section('function getPlayerClientChains(', 'async function setVoiceChannelStatus('),
     '({ getPlayerClientChains, getYtdlpBaseOptions, rememberWorkingClient })',
-  ].join('\n'), { tempCookiesPath: cookies, YTDLP_PO_TOKEN: manualToken, process: { env: {} } });
+  ].join('\n'), {
+    tempCookiesPath: cookies, YTDLP_PO_TOKEN: manualToken, YTDLP_CACHE_DIR: '/app/data/yt-dlp-cache',
+    process: { env: {} }, persistPreferredClient() {},
+  });
 }
 
 test('production client selection includes default separately with and without cookies', () => {
@@ -243,9 +246,17 @@ function playbackHarness(options = {}) {
   const processes = [];
   const extracted = [];
   const remembered = [];
+  const loadingStreams = [];
   const context = {
-    serverQueue, queue: new Map([['guild', serverQueue]]), AbortController, AbortSignal, Date,
+    serverQueue, queue: new Map([['guild', serverQueue]]), AbortController, AbortSignal, Date, setTimeout, clearTimeout,
     AudioPlayerStatus, StreamType, entersState, hasFreshAudioStream, prepareAudio, redactMediaUrls, waitForAudio,
+    untilAborted, waitForResourcePlaying, promoteYtdlp() {},
+    getLoadingSoundEnabled: () => Boolean(options.loadingSound),
+    createLoadingStream: () => {
+      const stream = new PassThrough();
+      loadingStreams.push(stream);
+      return stream;
+    },
     console: { log() {}, warn() {}, error() {} }, stats: { totalSongsPlayed: 0 },
     clearIdleDisconnect() {}, getDefaultVolume: () => 100,
     getPlayerClientChains: () => options.clients || ['mweb', 'web_safari'],
@@ -284,13 +295,14 @@ function playbackHarness(options = {}) {
   };
   vm.createContext(context);
   vm.runInContext([
+    section('const LOADING_SOUND_DELAY_MS', 'async function playSong(').replace('LOADING_SOUND_DELAY_MS = 1500', 'LOADING_SOUND_DELAY_MS = 0'),
     section('async function playSong(', 'async function getAudioStream('),
     section('function cleanupCurrentProcess(', 'function scheduleIdleDisconnect('),
     section('function skipQueue(', 'function stop('),
     'const queueConstruct = serverQueue; const guildId = "guild";',
     section('  queueConstruct.player.on(AudioPlayerStatus.Idle', '  try {\n    await entersState(connection'),
   ].join('\n'), context);
-  return { context, player, serverQueue, song, notices, advanced, processes, extracted, remembered };
+  return { context, player, serverQueue, song, notices, advanced, processes, extracted, remembered, loadingStreams };
 }
 
 const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
@@ -394,6 +406,105 @@ test('a mid-song failure retries once, and exhausted clients advance without ann
   assert.equal(await failed.context.playSong('guild', failed.song), false);
   assert.equal(failed.advanced.length, 1);
   assert.equal(failed.notices.length, 0);
+});
+
+async function waitFor(predicate, ms = 1000) {
+  const deadline = Date.now() + ms;
+  while (!predicate()) {
+    if (Date.now() > deadline) assert.fail('Playback did not reach the expected state');
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+}
+
+test('the loading sound fills a slow startup, then the song replaces it before it is announced', async () => {
+  let resolveExtraction;
+  const h = playbackHarness({ loadingSound: true, extract: () => new Promise((resolve) => { resolveExtraction = resolve; }) });
+  const task = h.context.playSong('guild', h.song);
+  await waitFor(() => h.player.state.status === 'playing' && h.player.state.resource?.metadata?.loading);
+  assert.equal(h.notices.length, 0, 'the loading sound does not count as the song starting');
+  assert.equal(h.serverQueue.currentResource, null);
+  resolveExtraction({ url: 'https://media.example/mweb', playerClient: 'mweb' });
+  assert.equal(await task, true);
+  assert.equal(h.player.state.resource.metadata.title, 'Test song');
+  assert.equal(h.loadingStreams.length, 1);
+  assert.equal(h.loadingStreams[0].destroyed, true);
+  assert.equal(h.serverQueue.loadingResource, null);
+  assert.equal(h.notices.length, 1);
+  h.context.cleanupCurrentProcess(h.serverQueue);
+});
+
+test('a startup that fails on every client leaves no loading sound behind', async () => {
+  const h = playbackHarness({ loadingSound: true, failAll: true });
+  assert.equal(await h.context.playSong('guild', h.song), false);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(h.loadingStreams.every((stream) => stream.destroyed));
+  assert.equal(h.serverQueue.loadingResource, null);
+  assert.equal(h.serverQueue.loadingTimer, null);
+  assert.equal(h.advanced.length, 1);
+});
+
+test('the loading sound stays off when the setting is off', async () => {
+  let resolveExtraction;
+  const h = playbackHarness({ extract: () => new Promise((resolve) => { resolveExtraction = resolve; }) });
+  const task = h.context.playSong('guild', h.song);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(h.loadingStreams.length, 0);
+  resolveExtraction({ url: 'https://media.example/mweb', playerClient: 'mweb' });
+  assert.equal(await task, true);
+  h.context.cleanupCurrentProcess(h.serverQueue);
+});
+
+test('a song that is already being prefetched waits for it instead of extracting again', async () => {
+  const h = playbackHarness();
+  let finishPrefetch;
+  h.song.prefetchPromise = new Promise((resolve) => { finishPrefetch = resolve; });
+  const task = h.context.playSong('guild', h.song);
+  await nextTurn();
+  assert.deepEqual(h.extracted, []);
+  h.song.prefetchedAudioStream = { url: `https://media.example/prefetched?expire=${Math.floor(Date.now() / 1000) + 3600}`, playerClient: 'default' };
+  h.song.prefetchedAt = Date.now();
+  finishPrefetch();
+  assert.equal(await task, true);
+  assert.deepEqual(h.extracted, [], 'the prefetched stream was used');
+  assert.equal(h.processes.length, 1);
+  h.context.cleanupCurrentProcess(h.serverQueue);
+
+  // Skipping while waiting on the prefetch cancels cleanly.
+  const skipped = playbackHarness();
+  skipped.song.prefetchPromise = new Promise(() => {});
+  const waiting = skipped.context.playSong('guild', skipped.song);
+  await nextTurn();
+  skipped.context.skipQueue(skipped.serverQueue);
+  assert.equal(await waiting, false);
+  assert.equal(skipped.advanced.length, 1);
+  assert.equal(skipped.processes.length, 0);
+});
+
+test('background prefetches leave a yt-dlp slot free for songs people are waiting for', async () => {
+  const source = fs.readFileSync(path.join(__dirname, '../index.js'), 'utf8').replace(/\r\n/g, '\n');
+  const start = source.indexOf('const YTDLP_MAX_CONCURRENT');
+  const slots = vm.runInNewContext(
+    `${source.slice(start, source.indexOf('async function runYtdlp(', start))}\n({ acquireYtdlpSlot, releaseYtdlpSlot, promoteYtdlp })`,
+    { process: { env: {} } },
+  );
+  const order = [];
+  const take = (name, priority) => slots.acquireYtdlpSlot(priority).then(() => order.push(name));
+  const prefetchB = { background: true };
+  take('prefetch A', { background: true });
+  take('prefetch B', prefetchB);
+  take('play C', {});
+  await nextTurn();
+  assert.deepEqual(order, ['prefetch A', 'play C'], 'a second prefetch may not take the last slot');
+  take('play D', {});
+  slots.releaseYtdlpSlot();
+  await nextTurn();
+  assert.deepEqual(order, ['prefetch A', 'play C', 'play D'], 'a requested song goes before an older prefetch');
+  slots.releaseYtdlpSlot();
+  await nextTurn();
+  assert.equal(order.length, 3);
+  slots.promoteYtdlp(prefetchB);
+  await nextTurn();
+  assert.equal(order.at(-1), 'prefetch B', 'a prefetch someone now waits for gets the free slot');
 });
 
 // This exercises the actual HTTP -> FFmpeg -> Ogg/Opus -> Discord player path,

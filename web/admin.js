@@ -282,6 +282,7 @@
     $('setting-idle').value = values.idleDisconnectSeconds ?? 10;
     $('setting-empty').value = values.emptyVcDisconnectSeconds ?? 60;
     $('setting-autopause').checked = Boolean(values.autoPauseWhenAlone);
+    $('setting-loading-sound').checked = values.loadingSound !== false;
     const overridden = data.guild || {};
     $('effective-prefix').textContent = state.scope === 'guild' ? (overridden.prefix == null ? 'Inherited from global settings' : 'Server override') : 'Used by every server without an override';
     $('effective-volume').textContent = state.scope === 'guild' ? (overridden.defaultVolume == null ? 'Inherited from global settings' : 'Server override') : 'Initial playback volume';
@@ -442,6 +443,7 @@
       idleDisconnectSeconds: Number($('setting-idle').value),
       emptyVcDisconnectSeconds: Number($('setting-empty').value),
       autoPauseWhenAlone: $('setting-autopause').checked,
+      loadingSound: $('setting-loading-sound').checked,
     };
     const query = state.scope === 'guild' ? `?guildId=${encodeURIComponent(state.guildId)}` : '';
     try {

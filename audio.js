@@ -100,6 +100,38 @@ function waitForAudio(child, signal, timeoutMs = 20_000) {
   });
 }
 
+// Resolves once the player is actually playing THIS resource. A loading sound
+// can already have the player in Playing, so the status alone proves nothing.
+function waitForResourcePlaying(player, resource, signal) {
+  const isPlaying = () => player.state.status === 'playing' && player.state.resource === resource;
+  return new Promise((resolve, reject) => {
+    const finish = (err) => {
+      player.off('playing', onPlaying);
+      signal?.removeEventListener('abort', onAbort);
+      if (err) reject(err);
+      else resolve();
+    };
+    const onPlaying = () => { if (isPlaying()) finish(); };
+    const onAbort = () => finish(signal.reason);
+    player.on('playing', onPlaying);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+    else onPlaying();
+  });
+}
+
+// Waits for a task that something else owns (such as a prefetch) without
+// keeping a cancelled playback alive.
+function untilAborted(task, signal) {
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    if (signal.aborted) return onAbort();
+    signal.addEventListener('abort', onAbort, { once: true });
+    Promise.resolve(task).then(resolve, reject)
+      .finally(() => signal.removeEventListener('abort', onAbort));
+  });
+}
+
 // A successful extraction is only a candidate: the consumer must start actual
 // playback before we accept it. A failed cache is retried with fresh extraction.
 async function prepareAudio({ cachedStream, clients, extract, start, signal, onFailure = () => {} }) {
@@ -126,5 +158,5 @@ async function prepareAudio({ cachedStream, clients, extract, start, signal, onF
 
 module.exports = {
   buildFfmpegArgs, hasFreshAudioStream, prepareAudio, redactMediaUrls,
-  selectAudioStream, spawnAudioProcess, waitForAudio,
+  selectAudioStream, spawnAudioProcess, untilAborted, waitForAudio, waitForResourcePlaying,
 };
