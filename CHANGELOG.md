@@ -5,6 +5,7 @@ All notable changes to J4FN Music, newest first.
 ## [Unreleased]
 
 ### Fixed
+- Pages pick up new styles and scripts right after a deploy. Each page links its CSS, JavaScript, and images with a hash of the file, so a browser or Cloudflare cache can no longer serve an old copy for hours (the 1.3.0 status page could appear unstyled until a hard refresh).
 - Deploys no longer log a false "Status website degraded" incident. Health failures in the first two minutes after a restart, while cloudflared is still starting, are shown but not recorded.
 
 ## [1.3.0] - 2026-10-23

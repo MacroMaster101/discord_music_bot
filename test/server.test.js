@@ -374,3 +374,17 @@ test('health is admin-only and the public status page gets the sanitized view', 
   assert.equal(publicHealth.components[0].name, 'Discord bot');
   assert.equal(publicHealth.env, undefined);
 });
+
+test('pages link assets by content hash so a deploy is never hidden by a cached file', async () => {
+  for (const page of ['/', '/status', '/admin/', '/login']) {
+    const html = await (await fetch(`${baseUrl}${page}`)).text();
+    const links = [...html.matchAll(/"(\/assets\/[\w.-]+)(\?v=[0-9a-f]{10})?"/g)];
+    assert.ok(links.length > 0, `${page} links assets`);
+    for (const [, assetPath, version] of links) assert.ok(version, `${page} versions ${assetPath}`);
+  }
+  const html = await (await fetch(`${baseUrl}/status`)).text();
+  const [, cssUrl] = html.match(/href="(\/assets\/app\.css\?v=[0-9a-f]{10})"/);
+  const css = await fetch(`${baseUrl}${cssUrl}`);
+  assert.equal(css.status, 200);
+  assert.match(css.headers.get('content-type'), /text\/css/);
+});
