@@ -4,6 +4,8 @@ All notable changes to J4FN Music, newest first.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-23
+
 ### Fixed
 - Pages pick up new styles and scripts right after a deploy. Each page links its CSS, JavaScript, and images with a hash of the file, so a browser or Cloudflare cache can no longer serve an old copy for hours (the 1.3.0 status page could appear unstyled until a hard refresh).
 - Deploys no longer log a false "Status website degraded" incident. Health failures in the first two minutes after a restart, while cloudflared is still starting, are shown but not recorded.
@@ -74,7 +76,8 @@ All notable changes to J4FN Music, newest first.
 
 First release: YouTube playback with search, playlists, queue controls, lyrics, and interactive buttons; a public status page; and a protected admin console.
 
-[Unreleased]: https://github.com/MacroMaster101/discord_music_bot/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/MacroMaster101/discord_music_bot/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/MacroMaster101/discord_music_bot/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/MacroMaster101/discord_music_bot/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/MacroMaster101/discord_music_bot/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/MacroMaster101/discord_music_bot/compare/v1.1.0...v1.1.1
