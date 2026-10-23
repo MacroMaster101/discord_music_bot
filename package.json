@@ -1,6 +1,6 @@
 {
   "name": "discord-music-bot",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Discord music bot with public dashboard and admin console",
   "main": "index.js",
   "license": "MIT",

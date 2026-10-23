@@ -4,6 +4,8 @@ All notable changes to J4FN Music, newest first.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-23
+
 ### New
 - **Maintenance mode.** Admins can switch it on from the console with a custom notice. The bot stays online, but every command, slash command, and button replies with the notice; the bot's status turns idle and shows "Under maintenance"; the status page shows a banner. Turning it on can also stop the music that is playing, with a note posted in each room. Restarts during maintenance keep saved queues instead of resuming them.
 - **System health in the admin console.** Checks run every minute for the Discord gateway, YouTube playback, yt-dlp, FFmpeg, the PO-token provider, Spotify, the Cloudflare Tunnel, the server (memory, disk, CPU), and the environment settings. Each shows 90 days of uptime bars, and an incident log records every break with its cause and how long it lasted, alongside restarts and maintenance changes. The environment panel shows only which settings are set, never their values.
@@ -68,6 +70,8 @@ All notable changes to J4FN Music, newest first.
 
 First release: YouTube playback with search, playlists, queue controls, lyrics, and interactive buttons; a public status page; and a protected admin console.
 
+[Unreleased]: https://github.com/MacroMaster101/discord_music_bot/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/MacroMaster101/discord_music_bot/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/MacroMaster101/discord_music_bot/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/MacroMaster101/discord_music_bot/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/MacroMaster101/discord_music_bot/compare/v1.0.0...v1.1.0

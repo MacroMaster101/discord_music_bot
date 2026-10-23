@@ -80,7 +80,8 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
 
 - **Code Style**: Vanilla JavaScript (Node.js CommonJS), clean and dependency-light.
 - **Privacy & Security**:
-  - Keep public endpoints strictly sanitized (`/api/public/*`).
+  - Keep public endpoints strictly sanitized (`/api/public/*`). The `/status` page reads `publicHealth()` in `health.js`, which drops check details, error text, and host or configuration components; keep it that way.
+  - Health checks and the environment report may say whether a secret is set, never its value.
   - Keep admin endpoints authenticated via Cloudflare Access or `ADMIN_TOKEN`.
   - Only YouTube URLs may reach `yt-dlp`/`ffmpeg`; never pass arbitrary user URLs or text that could be read as a command-line flag.
 - **Testing**:
