@@ -153,6 +153,42 @@ test('the public view hides internal components, details, and error text', () =>
   assert.doesNotMatch(JSON.stringify(view), /disk low|googlevideo|secret|EC2|restart/);
 });
 
+test('quarter-hour slots back the today view, and 7/30/90-day uptime is weighted by checks', async () => {
+  let clock = Date.UTC(2026, 9, 23, 10, 0);
+  const results = [];
+  const monitor = createHealthMonitor({
+    now: () => clock,
+    startupGraceMs: 0,
+    logger: quietLogger,
+    checks: [{ id: 'tunnel', name: 'TUNNEL', group: 'Test', run: async () => results.shift() || { status: 'operational' } }],
+  });
+  // 10:00 and 10:05 operational, 10:20 down, 10:25 operational.
+  results.push({ status: 'operational' }, { status: 'operational' }, { status: 'down', detail: 'x' }, { status: 'operational' });
+  for (const minutes of [0, 5, 20, 25]) {
+    clock = Date.UTC(2026, 9, 23, 10, minutes);
+    await monitor.runChecks();
+  }
+  const snapshot = monitor.snapshot();
+  const [component] = snapshot.components;
+  assert.equal(snapshot.slotMinutes, 15);
+  assert.equal(component.slots.length, 192);
+  assert.equal(snapshot.slotsStart + 191 * 15 * 60_000, Date.UTC(2026, 9, 23, 10, 15), 'the last slot is the current quarter hour');
+  assert.deepEqual(component.slots.slice(-2), [100, 50]);
+  assert.ok(component.slots.slice(0, -2).every((value) => value === null));
+  assert.deepEqual(component.uptimes, { 7: 75, 30: 75, 90: 75 });
+  assert.equal(component.uptime, 75);
+  const view = publicHealth(snapshot);
+  assert.equal(view.slotsStart, snapshot.slotsStart);
+  assert.deepEqual(view.components[0].slots, component.slots);
+  assert.deepEqual(view.components[0].uptimes, component.uptimes);
+
+  // Two days later the quarter-hour history has rolled off; daily history remains.
+  clock += 2 * DAY;
+  const later = monitor.snapshot().components[0];
+  assert.ok(later.slots.every((value) => value === null));
+  assert.equal(later.uptimes[7], 75);
+});
+
 test('failures while the stack is still starting show as starting and are not logged', async () => {
   let clock = Date.UTC(2026, 9, 23, 11, 20);
   const monitor = createHealthMonitor({

@@ -9,6 +9,7 @@
   <link rel="icon" href="/assets/favicon.png" type="image/png" sizes="256x256">
   <link rel="apple-touch-icon" href="/assets/logo.png">
   <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/uptime.js" defer></script>
   <script src="/assets/admin.js" defer></script>
 </head>
 <body class="admin-page">
@@ -60,7 +61,12 @@
         <section class="section health-section" id="health">
           <div class="section-heading"><div><span class="kicker">HEALTH</span><h2>System health</h2></div><div class="list-tools"><span class="updated" id="health-checked">Not checked yet</span><button class="button button-quiet" id="health-run" type="button">Run checks now</button></div></div>
           <div class="health-overall" id="health-overall" data-state="pending" role="status"><strong id="health-overall-text">Checking systems…</strong><small id="health-overall-note"></small></div>
-          <p class="health-caption">Uptime over the past <span class="days-long">90</span><span class="days-short">30</span> days. Checks run every minute; grey days have no data.</p>
+          <div class="health-caption-row">
+            <p class="health-caption">Checks run every minute; grey bars have no data.</p>
+            <div class="range-tabs" id="health-range" role="group" aria-label="Uptime period">
+              <button type="button" data-range="today">Today</button><button type="button" data-range="7">7 days</button><button type="button" data-range="30">30 days</button><button type="button" data-range="90">90 days</button>
+            </div>
+          </div>
           <div id="health-components" class="health-components"></div>
           <div class="health-logs">
             <div><h3>Incident log</h3><div id="health-incidents" class="health-log"><p class="muted">No incidents recorded.</p></div></div>
@@ -84,6 +90,7 @@
               <div class="field"><label for="setting-volume">Default volume <output id="volume-output">100%</output></label><input id="setting-volume" type="range" min="0" max="100"><small id="effective-volume"></small></div>
               <div class="form-grid"><div class="field"><label for="setting-idle">Idle disconnect</label><div class="input-suffix"><input id="setting-idle" type="number" min="5" max="3600" required><span>sec</span></div></div><div class="field"><label for="setting-empty">Empty room timeout</label><div class="input-suffix"><input id="setting-empty" type="number" min="10" max="3600" required><span>sec</span></div></div></div>
               <label class="toggle-row"><span><strong>Auto-pause empty rooms</strong><small>Pause when the last listener leaves.</small></span><input id="setting-autopause" type="checkbox"><i></i></label>
+              <label class="toggle-row"><span><strong>Loading music</strong><small>Play a soft loop while a song takes more than a moment to start.</small></span><input id="setting-loading-sound" type="checkbox"><i></i></label>
               <div class="form-actions"><button class="button button-danger" id="reset-settings" type="button">Delete/reset scope</button><button class="button button-primary" type="submit">Save settings</button></div>
             </form>
           </article>
