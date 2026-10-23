@@ -224,9 +224,20 @@ async function runYtdlpNow(url, options, timeoutMs) {
 function getPlayerClientChains() {
   // android_vr does not support account cookies. Trying it with an authenticated
   // cookies file only adds a slow, guaranteed-to-fail fallback.
-  return tempCookiesPath
+  const clients = tempCookiesPath
     ? PLAYER_CLIENT_CHAINS.filter((clientName) => clientName !== 'android_vr')
     : PLAYER_CLIENT_CHAINS;
+  if (!clients.includes(preferredPlayerClient)) return clients;
+  return [preferredPlayerClient, ...clients.filter((clientName) => clientName !== preferredPlayerClient)];
+}
+
+// Which client works depends on the host: on EC2 the forced clients fail where
+// `default` plays. Trying the last client that started playback first saves a
+// full failed yt-dlp run before every song; the rest remain fallbacks.
+let preferredPlayerClient = null;
+
+function rememberWorkingClient(playerClient) {
+  if (playerClient) preferredPlayerClient = playerClient;
 }
 
 async function setVoiceChannelStatus(channelId, status) {
@@ -1294,6 +1305,7 @@ async function playSong(guildId, song, seekSeconds = 0, options = {}) {
       },
     });
     if (!isCurrent()) return false;
+    rememberWorkingClient(stream.playerClient);
     song.prefetchedAudioStream = stream;
     song.prefetchedAt = Date.now();
     resource.metadata.onFailure = (err) => {

@@ -4,6 +4,9 @@ All notable changes to J4FN Music, newest first.
 
 ## [Unreleased]
 
+### Improved
+- Songs start faster: the bot remembers which YouTube client last started playback and tries it first, instead of repeating a failing client before every song. Other clients remain automatic fallbacks.
+
 ### Security
 - Resolved CodeQL findings: dashboard JSON escapes HTML characters, per-server settings can no longer write to object prototypes, the admin token parser avoids slow regex backtracking, client IPs are stripped of line breaks before logging, the yt-dlp cookies file is written to a private temporary directory, and YouTube links must use an exact YouTube host.
 
