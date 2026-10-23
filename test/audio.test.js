@@ -61,7 +61,7 @@ function extractorConfig(cookies = null, manualToken = null) {
     section('const PLAYER_CLIENT_CHAINS =', 'const YTDLP_ATTEMPT_TIMEOUT_MS'),
     section('function getYtdlpBaseOptions(', '// youtube-dl-exec exposes'),
     section('function getPlayerClientChains(', 'async function setVoiceChannelStatus('),
-    '({ getPlayerClientChains, getYtdlpBaseOptions })',
+    '({ getPlayerClientChains, getYtdlpBaseOptions, rememberWorkingClient })',
   ].join('\n'), { tempCookiesPath: cookies, YTDLP_PO_TOKEN: manualToken, process: { env: {} } });
 }
 
@@ -75,6 +75,23 @@ test('production client selection includes default separately with and without c
     assert.equal(config.getYtdlpBaseOptions('default').extractorArgs[0], 'youtube:player_client=default');
     assert.equal(Boolean(config.getYtdlpBaseOptions('default').cookies), Boolean(cookies));
   }
+});
+
+test('the last working client is tried first, keeping the others as fallbacks', () => {
+  for (const cookies of [null, '/app/data/cookies.txt']) {
+    const config = extractorConfig(cookies);
+    const original = Array.from(config.getPlayerClientChains());
+    config.rememberWorkingClient('default');
+    const preferred = Array.from(config.getPlayerClientChains());
+    assert.equal(preferred[0], 'default');
+    assert.deepEqual([...preferred].sort(), [...original].sort(), 'no client is dropped or duplicated');
+    assert.deepEqual(preferred.slice(1), original.filter((name) => name !== 'default'));
+  }
+  // A client unusable with cookies is never promoted into that host's chain.
+  const withCookies = extractorConfig('/app/data/cookies.txt');
+  withCookies.rememberWorkingClient('android_vr');
+  assert.equal(Array.from(withCookies.getPlayerClientChains()).includes('android_vr'), false);
+  assert.equal(withCookies.getPlayerClientChains()[0], 'mweb');
 });
 
 test('default clients use provider tokens rather than an invalid default.gvs namespace', () => {
@@ -225,12 +242,14 @@ function playbackHarness(options = {}) {
   const advanced = [];
   const processes = [];
   const extracted = [];
+  const remembered = [];
   const context = {
     serverQueue, queue: new Map([['guild', serverQueue]]), AbortController, AbortSignal, Date,
     AudioPlayerStatus, StreamType, entersState, hasFreshAudioStream, prepareAudio, redactMediaUrls, waitForAudio,
     console: { log() {}, warn() {}, error() {} }, stats: { totalSongsPlayed: 0 },
     clearIdleDisconnect() {}, getDefaultVolume: () => 100,
     getPlayerClientChains: () => options.clients || ['mweb', 'web_safari'],
+    rememberWorkingClient: (playerClient) => remembered.push(playerClient),
     getPlayableUrl: async () => song.url,
     getAudioStream: async (url, [playerClient]) => {
       extracted.push(playerClient);
@@ -269,7 +288,7 @@ function playbackHarness(options = {}) {
     'const queueConstruct = serverQueue; const guildId = "guild";',
     section('  queueConstruct.player.on(AudioPlayerStatus.Idle', '  try {\n    await entersState(connection'),
   ].join('\n'), context);
-  return { context, player, serverQueue, song, notices, advanced, processes, extracted };
+  return { context, player, serverQueue, song, notices, advanced, processes, extracted, remembered };
 }
 
 const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
@@ -322,6 +341,7 @@ test('production retries a forced-client API 403 using the default combined WEB 
   assert.equal(h.notices.length, 1);
   assert.equal(h.advanced.length, 0);
   assert.equal(h.song.prefetchedAudioStream.playerClient, 'default');
+  assert.deepEqual(h.remembered, ['default'], 'only the client that started playback is remembered');
   h.context.cleanupCurrentProcess(h.serverQueue);
 });
 
