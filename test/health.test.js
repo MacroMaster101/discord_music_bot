@@ -48,6 +48,7 @@ test('an outage opens one incident, escalates, and records how long it lasted', 
 
 test('a check that throws or hangs counts as down instead of breaking the monitor', async () => {
   const monitor = createHealthMonitor({
+    startupGraceMs: 0,
     logger: quietLogger,
     checks: [
       { id: 'discord', name: 'Discord', group: 'Bot', run: async () => { throw new Error('gateway closed\nstack'); } },
@@ -152,7 +153,7 @@ test('the public view hides internal components, details, and error text', () =>
   assert.doesNotMatch(JSON.stringify(view), /disk low|googlevideo|secret|EC2|restart/);
 });
 
-test('failures while the stack is still starting are shown but not logged', async () => {
+test('failures while the stack is still starting show as starting and are not logged', async () => {
   let clock = Date.UTC(2026, 9, 23, 11, 20);
   const monitor = createHealthMonitor({
     now: () => clock,
@@ -161,9 +162,14 @@ test('failures while the stack is still starting are shown but not logged', asyn
   });
   await monitor.runChecks();
   let snapshot = monitor.snapshot();
-  assert.equal(snapshot.components[0].status, 'degraded');
+  assert.equal(snapshot.components[0].status, 'starting');
+  assert.equal(snapshot.components[0].detail, 'Starting up · cloudflared metrics unreachable');
+  assert.equal(snapshot.overall, 'starting');
   assert.equal(snapshot.incidents.length, 0);
   assert.equal(snapshot.components[0].uptime, null);
+  const view = publicHealth({ ...snapshot, events: [] });
+  assert.equal(view.overall, 'starting');
+  assert.equal(view.components[0].status, 'starting');
 
   clock += 60_000;
   await monitor.runChecks();
@@ -172,5 +178,7 @@ test('failures while the stack is still starting are shown but not logged', asyn
   snapshot = monitor.snapshot();
   assert.equal(snapshot.incidents.length, 1);
   assert.equal(snapshot.incidents[0].detail, 'gone');
+  assert.equal(snapshot.components[0].status, 'down');
+  assert.equal(snapshot.overall, 'partial');
   assert.equal(snapshot.components[0].uptime, 50);
 });

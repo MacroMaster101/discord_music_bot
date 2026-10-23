@@ -4,6 +4,11 @@ All notable changes to J4FN Music, newest first.
 
 ## [Unreleased]
 
+### Improved
+- Faster deploys with shorter interruptions. A deploy rebuilds only the image layers whose inputs changed and restarts only the containers that need it: a code change restarts just the bot, while the Cloudflare tunnel and PO-token provider keep running. Docs-only changes skip the deploy. yt-dlp is downloaded again only when a new nightly is out, and the bot restarts for `.env` changes only when the file actually changed.
+- A full rebuild (fresh base image, OS packages, and every container) runs weekly and can be started any time from **Run workflow** with **Full rebuild** ticked. Old images are cleaned up after each deploy.
+- For two minutes after a restart, the status page and admin console show **Starting** instead of **Degraded** while services reconnect.
+
 ## [1.3.1] - 2026-10-23
 
 ### Fixed

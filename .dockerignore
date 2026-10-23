@@ -14,7 +14,6 @@ npm-debug.log*
 cookies.txt
 cookies_base64.txt
 fly.toml
-README.md
 .claude
 .superpowers
 .agents
@@ -24,3 +23,15 @@ AGENTS.md
 CLAUDE.md
 docs
 data
+
+# Not used at runtime. Keeping them out of the build context means a docs,
+# test, or CI-only change builds the same image, so a deploy leaves the
+# running bot alone.
+*.md
+LICENSE
+test
+scripts
+.github
+.dockerignore
+Dockerfile
+docker-compose.yml

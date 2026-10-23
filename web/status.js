@@ -5,13 +5,14 @@
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
   })[char]);
-  const STATUS_LABELS = { operational: 'Operational', degraded: 'Degraded', down: 'Outage', pending: 'Checking' };
+  const STATUS_LABELS = { operational: 'Operational', degraded: 'Degraded', down: 'Outage', pending: 'Checking', starting: 'Starting' };
   const OVERALL_LABELS = {
     operational: 'All systems operational',
     degraded: 'Degraded performance',
     partial: 'Partial outage',
     major: 'Major outage',
     pending: 'Checking systems…',
+    starting: 'Starting up after an update…',
   };
   const formatDateTime = (timestamp) => new Date(timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   const formatSpan = (ms) => {
