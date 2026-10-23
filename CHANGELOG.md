@@ -2,7 +2,7 @@
 
 All notable changes to J4FN Music, newest first.
 
-## [Unreleased]
+## [1.2.0] - 2026-09-24
 
 ### Fixed
 - YouTube playback now preserves stream headers, uses yt-dlp's checked format, and tries another client when FFmpeg cannot start the audio. Now Playing appears only after the audio player starts.
