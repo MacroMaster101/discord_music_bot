@@ -62,7 +62,7 @@ The bot reads `.env` when its container starts. Editors and `sed -i` often save 
 docker compose up -d --force-recreate bot
 ```
 
-Deploys already recreate the containers.
+Deploys restart the bot on their own when `.env` differs from the last deploy, including hand edits made since then.
 
 The admin console's **System health → Environment config** panel lists which of these keys are set (never their values) and flags a missing token or an `ADMIN_TOKEN` shorter than 24 characters.
 
@@ -170,6 +170,8 @@ The bot checks its parts every minute and keeps 90 days of results in `data/heal
 
 **System health** in the admin console shows each check's current result and uptime bars, an incident log with when each break started, what caused it, and how long it lasted, and an event log of restarts and maintenance changes. **Run checks now** re-checks immediately. `/status` shows the same history for the Discord bot, music playback, Spotify links, and the website, without internal details.
 
+For two minutes after a restart, failing checks show as **Starting** and are not recorded, because cloudflared and the PO-token provider are often still connecting.
+
 ---
 
 ## Automatic deploys (GitHub Actions)
@@ -181,6 +183,26 @@ The bot checks its parts every minute and keeps 90 days of results in `data/heal
 - `EC2_SSH_KEY`: the private key (`.pem`) contents
 - `CLOUDFLARE_TUNNEL_TOKEN`: the tunnel token
 - `YTDLP_COOKIES_BASE64` (optional): base64 YouTube cookies
+
+Deploys restart only what changed:
+
+| Change | What the deploy does |
+| :--- | :--- |
+| Only Markdown, `docs/`, or `LICENSE` | Skipped; nothing runs |
+| Tests, scripts, or CI files | Builds the same image from cache; the bot keeps running |
+| App code (`*.js`, `web/`) | Rebuilds only the last image layer and restarts the bot; cloudflared and the PO-token provider keep running |
+| `package*.json` or the `Dockerfile` | Rebuilds from the changed layer (for example `npm ci`) and restarts the bot |
+| A new yt-dlp nightly | Downloads it and restarts the bot. The workflow looks up the newest nightly tag and passes it as `YTDLP_VERSION`, so this layer stays cached until a new one comes out |
+| `.env` (deploy-managed keys or hand edits) | Restarts the bot so it reads the new file. The hash of the last deployed `.env` is kept in `.git/deployed-env.sha256` |
+| `docker-compose.yml` | Compose recreates only the services whose settings changed |
+
+A **full rebuild** pulls a fresh `node:22-slim` base image and the `bgutil-provider` and cloudflared images, rebuilds everything without cache (OS packages included), and restarts every container. It runs every Monday at 03:00 Sri Lanka time (Sunday 21:30 UTC). To run one now, open **Actions → Deploy Bot to AWS EC2 → Run workflow** and tick **Full rebuild**, or:
+
+```bash
+gh workflow run deploy.yml --ref main -f full_rebuild=true
+```
+
+Running the workflow without the box redeploys with the cache, which picks up a new yt-dlp nightly. After each deploy, untagged old images are removed; a full rebuild also drops build cache older than three days.
 
 Branches flow `feature → dev → main`. Feature, fix, and dependency PRs target `dev`; a `dev → main` pull request releases, and only pushes to `main` deploy. Both branches require the `branch-policy` and `test` checks. After `main` passes, the `sync-dev` job fast-forwards `dev` to it. See [CONTRIBUTING.md](CONTRIBUTING.md#branches).
 
@@ -205,7 +227,7 @@ If the bot joins voice but stays silent, check the logs immediately after `/play
 
 - **HTTP 403 / Forbidden:** YouTube rejected the media download. The bot tries fresh extraction and alternative clients before giving up. PO tokens cannot bypass every IP or login restriction; cookies may still be required on an EC2/datacenter IP.
 - **Sign in to confirm you're not a bot:** Refresh the cookies below, and check the provider logs for failed token requests.
-- **Requested format is not available:** Rebuild with `--no-cache` as above to refresh yt-dlp, its bundled JavaScript solver, and the token plugin. Failed extractions retain yt-dlp warnings in the logs, which help distinguish cookies, challenge-solving, and token problems.
+- **Requested format is not available:** Run a full rebuild (above) or rebuild with `--no-cache` as above to refresh yt-dlp, its bundled JavaScript solver, and the token plugin. Failed extractions retain yt-dlp warnings in the logs, which help distinguish cookies, challenge-solving, and token problems.
 - **Some clients return API 403s but yt-dlp's defaults find audio:** The bot tries `default` separately after `mweb`, and accepts checked combined audio/video formats when audio-only formats are unavailable. FFmpeg forwards only the audio. Warnings from individual default clients can still appear before a successful format selection.
 - **Voice connection timeout/error:** Check the bot's Connect and Speak permissions and the host's outbound UDP connectivity. An inbound dashboard/tunnel connection does not carry Discord voice audio.
 - **FFmpeg missing or no playable audio:** Rebuild the bot image. The bot waits for actual player startup before announcing Now Playing, and logs which client failed without printing signed media URLs.

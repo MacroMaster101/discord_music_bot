@@ -260,6 +260,15 @@ const PUBLIC_COMPONENTS = [
   ['tunnel', 'Status website'],
 ];
 
+function overallStatus(components) {
+  const statuses = components.map((component) => component.status);
+  if (statuses.includes('down')) return components.find((c) => c.id === 'discord')?.status === 'down' ? 'major' : 'partial';
+  if (statuses.includes('degraded')) return 'degraded';
+  if (statuses.includes('starting')) return 'starting';
+  if (statuses.includes('pending')) return 'pending';
+  return 'operational';
+}
+
 function publicHealth(snapshot, maintenance = {}) {
   const names = new Map(PUBLIC_COMPONENTS);
   const components = PUBLIC_COMPONENTS
@@ -273,14 +282,8 @@ function publicHealth(snapshot, maintenance = {}) {
       days: component.days.map(({ date, status, uptime }) => ({ date, status, uptime })),
     }));
 
-  const statuses = components.map((component) => component.status);
-  let overall = 'operational';
-  if (statuses.includes('pending')) overall = 'pending';
-  if (statuses.includes('degraded')) overall = 'degraded';
-  if (statuses.includes('down')) overall = components.find((c) => c.id === 'discord')?.status === 'down' ? 'major' : 'partial';
-
   return {
-    overall,
+    overall: overallStatus(components),
     maintenance: maintenance.enabled ? { enabled: true, message: String(maintenance.message || '') } : { enabled: false, message: '' },
     checkedAt: snapshot.checkedAt,
     historyDays: snapshot.historyDays,
@@ -440,26 +443,23 @@ function createHealthMonitor({
         history.push({ date, ...dayStatus(bucket) });
       }
       const result = latest.get(check.id) || { status: 'pending', detail: 'Waiting for the first check' };
+      // Failures right after a restart are usually a service still coming up
+      // (track() doesn't record them either), so show them as starting.
+      const starting = STATUS_RANK[result.status] > 0 && today - createdAt < startupGraceMs;
       return {
         id: check.id,
         name: check.name,
         group: check.group,
-        status: result.status,
-        detail: result.detail || '',
+        status: starting ? 'starting' : result.status,
+        detail: starting ? `Starting up · ${result.detail || result.status}` : result.detail || '',
         latencyMs: result.latencyMs ?? null,
         uptime: total ? Math.round((weighted / total) * 10000) / 100 : null,
         days: history,
       };
     });
 
-    const statuses = components.map((component) => component.status);
-    let overall = 'operational';
-    if (statuses.includes('pending')) overall = 'pending';
-    if (statuses.includes('degraded')) overall = 'degraded';
-    if (statuses.includes('down')) overall = components.find((c) => c.id === 'discord')?.status === 'down' ? 'major' : 'partial';
-
     return {
-      overall,
+      overall: overallStatus(components),
       checkedAt,
       intervalMs,
       historyDays: HISTORY_DAYS,

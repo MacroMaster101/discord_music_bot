@@ -393,7 +393,7 @@ input[type=range] { width: 100%; accent-color: var(--violet); }
 .health-overall[data-state="degraded"] { color: #1d1400; background: var(--yellow); }
 .health-overall[data-state="partial"] { color: #1f0b00; background: #ff9a4d; }
 .health-overall[data-state="major"] { color: #fff; background: #e5484d; }
-.health-overall[data-state="pending"] { color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); }
+.health-overall[data-state="pending"], .health-overall[data-state="starting"] { color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); }
 .health-overall[data-state="maintenance"] { color: #1d1400; background: var(--yellow); }
 .health-caption { margin: 0 0 14px; color: var(--faint); font-size: 11px; }
 .health-components { display: grid; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
@@ -406,7 +406,7 @@ input[type=range] { width: 100%; accent-color: var(--violet); }
 .health-status { flex: none; color: var(--green); font-size: 12px; font-weight: 750; }
 .health-row[data-status="degraded"] .health-status { color: var(--yellow); }
 .health-row[data-status="down"] .health-status { color: var(--red); }
-.health-row[data-status="unconfigured"] .health-status, .health-row[data-status="pending"] .health-status { color: var(--faint); }
+.health-row[data-status="unconfigured"] .health-status, .health-row[data-status="pending"] .health-status, .health-row[data-status="starting"] .health-status { color: var(--faint); }
 .health-detail { margin: 6px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.5; overflow-wrap: anywhere; }
 .uptime-bars { margin-top: 12px; height: 34px; display: grid; grid-template-columns: repeat(90, minmax(0, 1fr)); gap: 2px; }
 .bar { display: block; height: 100%; min-width: 0; border-radius: 2px; background: #76b82a; }

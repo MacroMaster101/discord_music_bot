@@ -24,7 +24,15 @@ RUN npm ci --omit=dev \
 
 # yt-dlp recommends the nightly channel for site breakages. Install its portable
 # binary and replace the older binary bundled by youtube-dl-exec.
-RUN wget -q https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp \
+# Deploys pass the newest nightly tag as YTDLP_VERSION, so this layer stays
+# cached until a new nightly is published. "latest" downloads the newest now.
+ARG YTDLP_VERSION=latest
+RUN if [ "$YTDLP_VERSION" = latest ]; then \
+        url=https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp; \
+    else \
+        url="https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/download/${YTDLP_VERSION}/yt-dlp"; \
+    fi \
+    && wget -q "$url" -O /usr/local/bin/yt-dlp \
     && chmod +x /usr/local/bin/yt-dlp \
     && cp /usr/local/bin/yt-dlp ./node_modules/youtube-dl-exec/bin/yt-dlp
 
