@@ -68,11 +68,11 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
 ## Branches
 
 - The flow is `feature/fix/dependency branch -> dev -> main`.
-- `dev` is the default and integration branch. Direct pushes are allowed for maintainers, and all feature, fix, and dependency-update PRs target `dev`. CI runs on pushes as well as PRs. Force-pushing and deleting `dev` are blocked.
-- `main` is production. Only a PR from this repository's `dev` branch may target it; both `branch-policy` and `test` must pass, the branch must be up to date, and review conversations must be resolved. Direct pushes, force-pushes, and deletion are blocked.
+- `dev` is the integration branch. Direct pushes are allowed for maintainers, and all feature, fix, and dependency-update PRs target `dev`. CI runs on pushes as well as PRs. Force-pushing and deleting `dev` are blocked.
+- `main` is the default and production branch. Only a PR from this repository's `dev` branch may target it; both `branch-policy` and `test` must pass, the branch must be up to date, and review conversations must be resolved. Direct pushes, force-pushes, and deletion are blocked.
 - Merge `dev -> main` using a merge commit so the integration history is retained. A separate workflow then synchronizes `main` back into `dev` without force-pushing. If concurrent work creates a merge conflict, resolve it on `dev` before promoting again.
 - Only pushes to `main` deploy to EC2. Feature and dependency PRs, pushes to `dev`, and branch synchronization do not deploy.
-- Dependabot checks npm packages, GitHub Actions, and Docker weekly and opens PRs against `dev`. Security-fix PRs also target `dev` because it is the default branch. Updates are reviewed and tested before a separate `dev -> main` release PR.
+- Dependabot checks npm packages, GitHub Actions, and Docker weekly and opens PRs against `dev`. Security-fix PRs open against the default branch (`main`), and the `Route Dependabot PRs to dev` workflow moves them to `dev`. Updates are reviewed and tested before a separate `dev -> main` release PR.
 
 ---
 

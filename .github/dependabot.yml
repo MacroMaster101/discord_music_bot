@@ -1,7 +1,7 @@
 version: 2
 updates:
-  # Version PRs target dev explicitly. Security PRs also target dev because
-  # dev is the repository's default branch; main remains production only.
+  # Version PRs target dev explicitly. Security PRs always open against the
+  # default branch (main); .github/workflows/dependabot-to-dev.yml moves them to dev.
   - package-ecosystem: npm
     directory: /
     target-branch: dev

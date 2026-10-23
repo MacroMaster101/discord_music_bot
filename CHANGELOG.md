@@ -9,7 +9,7 @@ All notable changes to J4FN Music, newest first.
 
 ### Maintenance
 - Standardized feature and dependency updates through `dev` before production PRs to `main`, with branch checks, weekly Dependabot updates, and automatic synchronization after production merges.
-- Dependabot no longer proposes `opusscript` 0.1+ (incompatible with `@discordjs/voice`) or major Node.js Docker image upgrades; the image stays on the Node 22 LTS line that CI tests.
+- Dependabot no longer proposes `opusscript` 0.1+ (incompatible with `@discordjs/voice`) or major Node.js Docker image upgrades; the image stays on the Node 22 LTS line that CI tests. `main` is the default branch again, and Dependabot security PRs opened against it are moved to `dev` automatically.
 
 ### Fixed
 - YouTube playback now preserves stream headers, uses yt-dlp's checked format, and tries another client when FFmpeg cannot start the audio. Now Playing appears only after the audio player starts.
