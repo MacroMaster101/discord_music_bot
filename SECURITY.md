@@ -6,8 +6,8 @@ We provide security updates and patches for the latest version of the Discord Mu
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.x     | :white_check_mark: |
-| < 1.0   | :x:                |
+| 1.3.x   | :white_check_mark: |
+| < 1.3   | :x:                |
 
 ---
 
@@ -46,3 +46,4 @@ When running your own instance:
 3. **Restrict Network Exposure**: When using Cloudflare Tunnel, bind host port `8080` to `127.0.0.1` (`DASHBOARD_BIND_ADDRESS=127.0.0.1`) and remove external firewall access to port `8080`.
 4. **Verify Cloudflare Access JWTs**: Set `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` so the dashboard cryptographically verifies Access identities instead of trusting request headers.
 5. **Protect Cookies**: If using YouTube cookies (`cookies.txt`), use a throwaway account and keep the file permissions restricted (`chmod 600 data/cookies.txt`).
+6. **Review System health**: The admin console's environment panel reports which secrets are set, never their values, and flags a missing or short `ADMIN_TOKEN`. Its incident log shows when the tunnel, playback, or host last failed.
