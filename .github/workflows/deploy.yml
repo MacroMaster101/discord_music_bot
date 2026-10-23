@@ -16,8 +16,9 @@ on:
         type: boolean
         default: false
   schedule:
-    # Weekly full rebuild for OS and package updates: Monday 03:00 Sri Lanka time.
-    - cron: '30 21 * * 0'
+    # Nightly at 03:00 Sri Lanka time the server decides whether the weekly
+    # full rebuild is due and nobody is listening (see the deploy script).
+    - cron: '30 21 * * *'
 
 permissions:
   contents: read
@@ -45,6 +46,8 @@ jobs:
           YOUTUBE_DL_SKIP_DOWNLOAD: "1"
       - name: Check JavaScript syntax
         run: npm run check
+      - name: Verify native Opus installation
+        run: node -e "require('@discordjs/opus')"
       - name: Run tests
         run: npm test
 
@@ -79,16 +82,48 @@ jobs:
           YTDLP_COOKIES_BASE64: ${{ secrets.YTDLP_COOKIES_BASE64 }}
           CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
           YTDLP_VERSION: ${{ steps.ytdlp.outputs.version }}
-          FULL_REBUILD: ${{ github.event_name == 'schedule' || inputs.full_rebuild == true }}
+          FULL_REBUILD: ${{ inputs.full_rebuild == true }}
+          SCHEDULED: ${{ github.event_name == 'schedule' }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: YTDLP_COOKIES_BASE64,CLOUDFLARE_TUNNEL_TOKEN,YTDLP_VERSION,FULL_REBUILD
+          envs: YTDLP_COOKIES_BASE64,CLOUDFLARE_TUNNEL_TOKEN,YTDLP_VERSION,FULL_REBUILD,SCHEDULED
           command_timeout: 15m
           script: |
             set -eu
             cd ~/discord_music_bot
+            # Weekly full rebuild, only while nobody is listening. The nightly
+            # run rebuilds once 7 days have passed since the last full rebuild
+            # and no room is playing. Defer if activity cannot be checked;
+            # only an explicit manual full rebuild may interrupt listeners.
+            full_state=.git/last-full-rebuild
+            if [ "${SCHEDULED:-false}" = "true" ]; then
+              now_s="$(date +%s)"
+              last_full="$(cat "$full_state" 2>/dev/null || true)"
+              case "$last_full" in
+                '' | *[!0-9]*) last_full=$((now_s - 7 * 86400)) ;;
+              esac
+              age_days=$(((now_s - last_full) / 86400))
+              if [ "$age_days" -lt 7 ]; then
+                echo "Weekly rebuild not due: the last full rebuild was $age_days day(s) ago."
+                exit 0
+              fi
+              port="$(grep -E '^PORT=[0-9]+$' .env | tail -n 1 | cut -d = -f 2 || true)"
+              listening="$(docker exec discord-music-bot node -e "fetch('http://127.0.0.1:${port:-8080}/api/public/status', { signal: AbortSignal.timeout(5000) }).then((r) => { if (!r.ok) throw new Error('Status unavailable'); return r.json(); }).then((d) => { if (!Array.isArray(d.activeTracks)) throw new Error('Activity unavailable'); console.log(d.activeTracks.length); }).catch(() => { process.exitCode = 1; })" 2>/dev/null || true)"
+              case "$listening" in
+                '' | *[!0-9]*)
+                  echo "Cannot confirm the bot is idle. Trying the weekly rebuild again tomorrow night."
+                  exit 0
+                  ;;
+              esac
+              if [ "$listening" -gt 0 ]; then
+                echo "Weekly rebuild is due, but music is playing in $listening room(s). Trying again tomorrow night."
+                exit 0
+              fi
+              echo "Weekly rebuild: $age_days day(s) since the last one, $listening room(s) playing."
+              FULL_REBUILD=true
+            fi
             before="$(git rev-parse HEAD)"
             attempt=1
             until git pull --ff-only origin main; do
@@ -184,5 +219,6 @@ jobs:
             # Old bot images become untagged after each build; keep the disk tidy.
             docker image prune -f
             if [ "${FULL_REBUILD:-false}" = "true" ]; then
+              date +%s > "$full_state"
               docker builder prune -f --filter until=72h
             fi

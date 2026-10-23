@@ -51,7 +51,8 @@ Copy `.env.example` to `.env` and fill it in. `.env` is never committed.
 | `BGUTIL_BASE_URL` | optional | PO-token provider URL (default `http://bgutil-provider:4416`). |
 | `BGUTIL_VERSION` | optional | PO-token provider and plugin release, kept in step (default `2.0.2`). |
 | `YTDLP_COOKIES_PATH` / `YTDLP_COOKIES_BASE64` | optional | YouTube cookies for login-restricted videos (see below). |
-| `YTDLP_MAX_CONCURRENT` | optional | How many YouTube lookups may run at once (default `2`). Raise it on a server with more CPU. |
+| `YTDLP_MAX_CONCURRENT` | optional | How many YouTube lookups may run at once (default `2`). Raise it on a server with more CPU. Songs someone asked for go first; next-song prefetches never take the last free slot. |
+| `LOADING_SOUND_PATH` | optional | An audio file to loop while songs load, instead of the built-in loop. Use only music you have the rights to. |
 | `VM_MEMORY_MB` | optional | Memory ceiling shown in the admin console (default `2048`). |
 
 ### Changing `.env` on a running server
@@ -92,6 +93,18 @@ The dashboard listens on port `8080`. Use direct IP access only while setting up
 ### Music keeps playing through restarts
 
 When Docker stops the bot (a deploy, `docker compose restart`, a server reboot), the bot saves every server's queue, song position, loop mode, volume, and history to `data/resume.json`. On the next start it rejoins voice channels that still have listeners and continues from the same spot, posting "Back after a quick update" in the music channel. Saves older than 15 minutes are ignored. The bot gets 20 seconds to save (`stop_grace_period` in `docker-compose.yml`).
+
+### Fast song starts
+
+- **Saved across restarts:** the YouTube client that last worked is saved in `data/playback-state.json`, and yt-dlp's cache (YouTube player code and solved challenges) is kept in `data/yt-dlp-cache`. The first song after a restart doesn't repeat that work.
+- **Overlapping steps:** the first song's audio is looked up while the bot joins voice, and the next song is prefetched while the current one plays. A pasted YouTube link reuses the lookup that read its title.
+- **Startup times:** the logs show how long each start took (`ready in 4.2s via default`), and so does the **YouTube playback** row in System health.
+
+### Loading music
+
+If a song takes more than 1.5 seconds to start, the bot plays a soft lo-fi loop until the song is ready, and the song replaces it. The loop also covers the gap when one YouTube client fails and the next one is tried.
+
+The loop is composed in `loading-sound.js`, so it needs no licence or file. To use your own instead, set `LOADING_SOUND_PATH` to an audio file inside the container, for example `/app/data/loading.mp3`. Turn the loop off globally or for one server with **Loading music** in the admin settings.
 
 ---
 
@@ -172,6 +185,8 @@ The bot checks its parts every minute and keeps 90 days of results in `data/heal
 
 For two minutes after a restart, failing checks show as **Starting** and are not recorded, because cloudflared and the PO-token provider are often still connecting.
 
+Both pages can show uptime for **Today** (24 hourly bars from midnight in the viewer's time zone), or the last **7**, **30**, or **90 days**. Hourly bars come from 15-minute buckets kept for 48 hours; daily bars are kept for 90 days.
+
 ---
 
 ## Automatic deploys (GitHub Actions)
@@ -196,7 +211,15 @@ Deploys restart only what changed:
 | `.env` (deploy-managed keys or hand edits) | Restarts the bot so it reads the new file. The hash of the last deployed `.env` is kept in `.git/deployed-env.sha256` |
 | `docker-compose.yml` | Compose recreates only the services whose settings changed |
 
-A **full rebuild** pulls a fresh `node:22-slim` base image and the `bgutil-provider` and cloudflared images, rebuilds everything without cache (OS packages included), and restarts every container. It runs every Monday at 03:00 Sri Lanka time (Sunday 21:30 UTC). To run one now, open **Actions → Deploy Bot to AWS EC2 → Run workflow** and tick **Full rebuild**, or:
+A **full rebuild** pulls a fresh `node:22-slim` base image and the `bgutil-provider` and cloudflared images, rebuilds everything without cache (OS packages included), and restarts every container.
+
+It runs weekly, but only when nobody is listening. Every night at 03:00 Sri Lanka time (21:30 UTC) the server checks two things:
+
+- **Not due yet:** if the last full rebuild was less than 7 days ago, nothing happens.
+- **Due:** if no room is playing music, it rebuilds. If music is playing, it tries again the next night.
+- **Activity unavailable:** if the bot cannot confirm it is idle, the rebuild waits until the next night. Scheduled rebuilds never force an interruption, even when overdue.
+
+The time of the last full rebuild is kept in `.git/last-full-rebuild` on the server. Each nightly check shows up as a short run in the Actions tab, even when it decides to do nothing. To run a full rebuild now, open **Actions → Deploy Bot to AWS EC2 → Run workflow** and tick **Full rebuild**, or:
 
 ```bash
 gh workflow run deploy.yml --ref main -f full_rebuild=true

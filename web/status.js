@@ -21,16 +21,20 @@
     const hours = Math.floor(minutes / 60);
     return hours < 48 ? `${hours} h ${minutes % 60} min` : `${Math.floor(hours / 24)} d ${hours % 24} h`;
   };
-  const barLevel = (day) => {
-    if (day.uptime == null) return 'none';
-    if (day.uptime >= 99.9) return 'l0';
-    if (day.uptime >= 99) return 'l1';
-    if (day.uptime >= 95) return 'l2';
-    if (day.uptime >= 80) return 'l3';
-    return 'l4';
-  };
+  let lastData = null;
+  const currentRange = window.UptimeBars.bindTabs($('status-range'), 'status-range', () => lastData && renderComponents(lastData));
+
+  function renderComponents(data) {
+    const components = data.components || [];
+    const range = currentRange();
+    $('status-components').innerHTML = components.length ? components.map((component) => `<article class="health-row" data-status="${escapeHtml(component.status)}">
+        <div class="health-row-head"><strong>${escapeHtml(component.name)}</strong><span class="health-status">${escapeHtml(STATUS_LABELS[component.status] || component.status)}</span></div>
+        ${window.UptimeBars.render(component, data, range, escapeHtml)}
+      </article>`).join('') : '<div class="empty-state"><span>◌</span><strong>No checks yet</strong><p>The first results appear a minute after the bot starts.</p></div>';
+  }
 
   function render(data) {
+    lastData = data;
     const overall = data.overall || 'pending';
     $('status-overall').dataset.state = data.maintenance?.enabled ? 'maintenance' : overall;
     $('status-overall-text').textContent = data.maintenance?.enabled ? 'Under maintenance' : OVERALL_LABELS[overall];
@@ -38,18 +42,7 @@
     $('status-maintenance').hidden = !data.maintenance?.enabled;
     $('status-maintenance-message').textContent = data.maintenance?.message || '';
 
-    const components = data.components || [];
-    $('status-components').innerHTML = components.length ? components.map((component) => {
-      const bars = component.days.map((day) => {
-        const label = day.uptime == null ? `${day.date}: no data` : `${day.date}: ${day.uptime}% uptime`;
-        return `<i class="bar ${barLevel(day)}" title="${escapeHtml(label)}"></i>`;
-      }).join('');
-      return `<article class="health-row" data-status="${escapeHtml(component.status)}">
-        <div class="health-row-head"><strong>${escapeHtml(component.name)}</strong><span class="health-status">${escapeHtml(STATUS_LABELS[component.status] || component.status)}</span></div>
-        <div class="uptime-bars" role="img" aria-label="${escapeHtml(`${component.name}: ${component.uptime == null ? 'no data yet' : `${component.uptime}% uptime`}`)}">${bars}</div>
-        <div class="uptime-foot"><span><span class="days-long">90 days ago</span><span class="days-short">30 days ago</span></span><span>${component.uptime == null ? 'No data yet' : `${escapeHtml(component.uptime)}% uptime`}</span><span>Today</span></div>
-      </article>`;
-    }).join('') : '<div class="empty-state"><span>◌</span><strong>No checks yet</strong><p>The first results appear a minute after the bot starts.</p></div>';
+    renderComponents(data);
 
     const entries = [
       ...(data.incidents || []).map((incident) => ({

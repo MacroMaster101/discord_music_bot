@@ -36,7 +36,7 @@ Play songs by name, YouTube or Spotify links, and run everything from one-tap bu
 - ⚡ **Quick starts.** The bot remembers which YouTube client worked last and tries it first.
 - 🔄 **Keeps playing through updates.** After a restart, the bot rejoins and resumes the same song where it left off.
 - 🔒 **Private per server.** Each server has its own queue, controls, and settings.
-- 📊 **Live dashboard and status page.** See what's playing, which servers the bot is in, and 90 days of uptime.
+- 📊 **Live dashboard and status page.** See what's playing, which servers the bot is in, and uptime for Today, 7, 30, or 90 days.
 
 ---
 
@@ -80,7 +80,7 @@ When the bot is under maintenance, commands reply with a short notice instead, a
 | Page | Who | What's there |
 | :--- | :--- | :--- |
 | [`/`](https://music.j4fn.site) | Everyone | Live rooms and joined servers (with search and *See more*), uptime, listener counts, commands, and a bug report form. |
-| [`/status`](https://music.j4fn.site/status) | Everyone | Overall state, 90-day uptime bars for the bot, playback, Spotify, and the website, plus past incidents and maintenance. |
+| [`/status`](https://music.j4fn.site/status) | Everyone | Overall state, Today/7/30/90-day uptime bars for the bot, playback, Spotify, and the website, plus past incidents and maintenance. |
 | `/admin` | Owner (Cloudflare Access or admin token) | Control every room, global and per-server settings, bot presence, maintenance mode, system health with incident and event logs, and the environment report. |
 
 ---

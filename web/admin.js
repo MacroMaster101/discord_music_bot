@@ -181,15 +181,17 @@
     const hours = Math.floor(minutes / 60);
     return hours < 48 ? `${hours}h ${minutes % 60}m` : `${Math.floor(hours / 24)}d ${hours % 24}h`;
   };
-  // Same scale as public status pages: green at 99.9 % and above, red for a bad day.
-  const barLevel = (day) => {
-    if (day.uptime == null) return 'none';
-    if (day.uptime >= 99.9) return 'l0';
-    if (day.uptime >= 99) return 'l1';
-    if (day.uptime >= 95) return 'l2';
-    if (day.uptime >= 80) return 'l3';
-    return 'l4';
-  };
+  let lastHealth = null;
+  const healthRange = window.UptimeBars.bindTabs($('health-range'), 'admin-health-range', () => lastHealth && renderHealthComponents(lastHealth));
+
+  function renderHealthComponents(data) {
+    const range = healthRange();
+    $('health-components').innerHTML = (data.components || []).map((component) => `<article class="health-row" data-status="${escapeHtml(component.status)}">
+        <div class="health-row-head"><div><strong>${escapeHtml(component.name)}</strong><small>${escapeHtml(component.group)}</small></div><span class="health-status">${escapeHtml(HEALTH_LABELS[component.status] || component.status)}</span></div>
+        <p class="health-detail">${escapeHtml(component.detail)}</p>
+        ${window.UptimeBars.render(component, data, range, escapeHtml)}
+      </article>`).join('');
+  }
 
   function renderHealth(data) {
     const overall = data.overall || 'pending';
@@ -199,19 +201,8 @@
     $('health-overall-note').textContent = broken.length ? broken.map((c) => `${c.name}: ${HEALTH_LABELS[c.status].toLowerCase()}`).join(' · ') : '';
     $('health-checked').textContent = data.checkedAt ? `Checked ${new Date(data.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'Not checked yet';
 
-    $('health-components').innerHTML = (data.components || []).map((component) => {
-      const bars = component.days.map((day) => {
-        const label = day.uptime == null ? `${day.date}: no data` : `${day.date}: ${day.uptime}% uptime${day.status !== 'operational' ? ` (${day.status})` : ''}`;
-        return `<i class="bar ${barLevel(day)}" title="${escapeHtml(label)}"></i>`;
-      }).join('');
-      const uptime = component.uptime == null ? 'No data yet' : `${component.uptime}% uptime`;
-      return `<article class="health-row" data-status="${escapeHtml(component.status)}">
-        <div class="health-row-head"><div><strong>${escapeHtml(component.name)}</strong><small>${escapeHtml(component.group)}</small></div><span class="health-status">${escapeHtml(HEALTH_LABELS[component.status] || component.status)}</span></div>
-        <p class="health-detail">${escapeHtml(component.detail)}</p>
-        <div class="uptime-bars" aria-hidden="true">${bars}</div>
-        <div class="uptime-foot"><span><span class="days-long">90 days ago</span><span class="days-short">30 days ago</span></span><span>${escapeHtml(uptime)}</span><span>Today</span></div>
-      </article>`;
-    }).join('');
+    lastHealth = data;
+    renderHealthComponents(data);
 
     const incidents = data.incidents || [];
     $('health-incidents').innerHTML = incidents.length ? incidents.map((incident) => {
@@ -282,6 +273,7 @@
     $('setting-idle').value = values.idleDisconnectSeconds ?? 10;
     $('setting-empty').value = values.emptyVcDisconnectSeconds ?? 60;
     $('setting-autopause').checked = Boolean(values.autoPauseWhenAlone);
+    $('setting-loading-sound').checked = values.loadingSound !== false;
     const overridden = data.guild || {};
     $('effective-prefix').textContent = state.scope === 'guild' ? (overridden.prefix == null ? 'Inherited from global settings' : 'Server override') : 'Used by every server without an override';
     $('effective-volume').textContent = state.scope === 'guild' ? (overridden.defaultVolume == null ? 'Inherited from global settings' : 'Server override') : 'Initial playback volume';
@@ -442,6 +434,7 @@
       idleDisconnectSeconds: Number($('setting-idle').value),
       emptyVcDisconnectSeconds: Number($('setting-empty').value),
       autoPauseWhenAlone: $('setting-autopause').checked,
+      loadingSound: $('setting-loading-sound').checked,
     };
     const query = state.scope === 'guild' ? `?guildId=${encodeURIComponent(state.guildId)}` : '';
     try {

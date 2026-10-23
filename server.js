@@ -45,6 +45,7 @@ const STATIC_FILES = new Map([
   ['/assets/public.js', ['public.js', 'application/javascript; charset=utf-8']],
   ['/assets/admin.js', ['admin.js', 'application/javascript; charset=utf-8']],
   ['/assets/status.js', ['status.js', 'application/javascript; charset=utf-8']],
+  ['/assets/uptime.js', ['uptime.js', 'application/javascript; charset=utf-8']],
   ['/assets/login.js', ['login.js', 'application/javascript; charset=utf-8']],
   ['/assets/login.css', ['login.css', 'text/css; charset=utf-8']],
   ['/assets/logo.png', ['logo.png', 'image/png']],

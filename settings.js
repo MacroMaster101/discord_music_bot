@@ -13,6 +13,7 @@ const DEFAULTS = {
   idleDisconnectSeconds: 10,
   emptyVcDisconnectSeconds: 60,
   autoPauseWhenAlone: true,
+  loadingSound: true,
   presenceMode: 'automatic',
   presenceStatus: 'online',
   presenceActivityType: 'competing',
@@ -142,6 +143,9 @@ function sanitize(patch) {
   }
   if (patch.autoPauseWhenAlone !== undefined) {
     out.autoPauseWhenAlone = !!patch.autoPauseWhenAlone;
+  }
+  if (patch.loadingSound !== undefined) {
+    out.loadingSound = patch.loadingSound === true;
   }
   if (patch.presenceMode !== undefined && ['automatic', 'custom'].includes(patch.presenceMode)) {
     out.presenceMode = patch.presenceMode;

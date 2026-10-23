@@ -11,8 +11,10 @@ const {
 const { loadSnapshots, resumePosition, saveSnapshots, snapshotQueue } = require('./resume');
 const { commandDefinitions, definitionsSignature, toPrefixCommand } = require('./slash-commands');
 const {
-  hasFreshAudioStream, prepareAudio, redactMediaUrls, selectAudioStream, spawnAudioProcess, waitForAudio,
+  hasFreshAudioStream, prepareAudio, redactMediaUrls, selectAudioStream, spawnAudioProcess, untilAborted,
+  waitForAudio, waitForResourcePlaying,
 } = require('./audio');
+const { createLoadingStream } = require('./loading-sound');
 const { sendPlaybackNotice } = require('./playback-notifications');
 
 settings.load();
@@ -71,6 +73,10 @@ function getIdleDisconnectMs(guildId) { return settings.get(guildId, 'idleDiscon
 function getEmptyVcDisconnectMs(guildId) { return settings.get(guildId, 'emptyVcDisconnectSeconds') * 1000; }
 function getDefaultVolume(guildId) { return settings.get(guildId, 'defaultVolume'); }
 function getAutoPauseWhenAlone(guildId) { return settings.get(guildId, 'autoPauseWhenAlone'); }
+function getLoadingSoundEnabled(guildId) { return settings.get(guildId, 'loadingSound'); }
+// yt-dlp caches YouTube's player code and solved challenges. Keeping the cache
+// in the data volume means the first song after a restart skips that work.
+const YTDLP_CACHE_DIR = path.join(settings.DATA_DIR, 'yt-dlp-cache');
 const YTDLP_COOKIES_PATH = process.env.YTDLP_COOKIES_PATH || process.env.YTDLP_COOKIES;
 const YTDLP_COOKIES_BASE64 = process.env.YTDLP_COOKIES_BASE64;
 const YTDLP_PO_TOKEN = process.env.YTDLP_PO_TOKEN;
@@ -161,6 +167,7 @@ function getYtdlpBaseOptions(playerClientOverride) {
   if (tempCookiesPath) {
     opts.cookies = tempCookiesPath;
   }
+  if (YTDLP_CACHE_DIR) opts.cacheDir = YTDLP_CACHE_DIR;
   // Legacy manual PO token still honored if explicitly set (auto-provider preferred).
   // Modern yt-dlp requires CLIENT.CONTEXT+TOKEN; this token is for GVS media URLs.
   // `default` is a selector, not a real client/token namespace. Let the provider
@@ -178,26 +185,48 @@ function getYtdlpBaseOptions(playerClientOverride) {
 // yt-dlp is a heavy Python process. When many servers start songs at once,
 // running them all in parallel starves ffmpeg of CPU and every stream stutters,
 // so at most YTDLP_MAX_CONCURRENT run at a time and the rest wait their turn.
+// Songs someone is waiting for go first. Background prefetches of the next
+// song never take the last free slot, so one server preparing its queue can't
+// delay a song another server just asked for.
 const YTDLP_MAX_CONCURRENT = Math.max(1, Number(process.env.YTDLP_MAX_CONCURRENT) || 2);
 let ytdlpActive = 0;
-const ytdlpWaiting = [];
+const ytdlpWaiting = []; // { resolve, priority }, oldest first
 
-function acquireYtdlpSlot() {
-  if (ytdlpActive < YTDLP_MAX_CONCURRENT) {
+function canStartYtdlp(priority) {
+  const limit = priority.background ? Math.max(1, YTDLP_MAX_CONCURRENT - 1) : YTDLP_MAX_CONCURRENT;
+  return ytdlpActive < limit;
+}
+
+function drainYtdlpQueue() {
+  for (;;) {
+    let index = ytdlpWaiting.findIndex((waiter) => !waiter.priority.background);
+    if (index < 0) index = ytdlpWaiting.length ? 0 : -1;
+    if (index < 0 || !canStartYtdlp(ytdlpWaiting[index].priority)) return;
     ytdlpActive += 1;
-    return Promise.resolve();
+    ytdlpWaiting.splice(index, 1)[0].resolve();
   }
-  return new Promise((resolve) => ytdlpWaiting.push(resolve));
+}
+
+function acquireYtdlpSlot(priority = {}) {
+  const ready = new Promise((resolve) => ytdlpWaiting.push({ resolve, priority }));
+  drainYtdlpQueue();
+  return ready;
 }
 
 function releaseYtdlpSlot() {
-  const next = ytdlpWaiting.shift();
-  if (next) next(); // hand the slot straight to the next waiter
-  else ytdlpActive -= 1;
+  ytdlpActive -= 1;
+  drainYtdlpQueue();
 }
 
-async function runYtdlp(url, options, timeoutMs = YTDLP_ATTEMPT_TIMEOUT_MS) {
-  await acquireYtdlpSlot();
+// A prefetch that a listener is now waiting for jumps the background queue.
+function promoteYtdlp(priority) {
+  if (!priority?.background) return;
+  priority.background = false;
+  drainYtdlpQueue();
+}
+
+async function runYtdlp(url, options, timeoutMs = YTDLP_ATTEMPT_TIMEOUT_MS, priority = {}) {
+  await acquireYtdlpSlot(priority);
   try {
     return await runYtdlpNow(url, options, timeoutMs);
   } finally {
@@ -238,7 +267,9 @@ function getPlayerClientChains() {
 let preferredPlayerClient = null;
 
 function rememberWorkingClient(playerClient) {
-  if (playerClient) preferredPlayerClient = playerClient;
+  if (!playerClient || playerClient === preferredPlayerClient) return;
+  preferredPlayerClient = playerClient;
+  persistPreferredClient(playerClient);
 }
 
 async function setVoiceChannelStatus(channelId, status) {
@@ -266,6 +297,26 @@ const inflightPlay = new Set(); // guildIds currently bootstrapping a queue
 // Song starts and host-side failures, read by the YouTube playback health check.
 const playbackHealth = { lastSuccessAt: 0, lastFailureAt: 0, lastFailureReason: '', playerClient: null, failures: [] };
 const HOST_FAILURE_RE = /403|forbidden|sign in to confirm|not a bot|did not return an audio url|requested format is not available|timed out|ffmpeg/i;
+
+// The working client is saved, so the first song after a restart doesn't sit
+// through a client that fails on this host (that cost up to a minute).
+const PLAYBACK_STATE_FILE = path.join(settings.DATA_DIR, 'playback-state.json');
+
+function persistPreferredClient(playerClient) {
+  try {
+    fs.writeFileSync(PLAYBACK_STATE_FILE, JSON.stringify({ preferredPlayerClient: playerClient, savedAt: Date.now() }));
+  } catch (err) {
+    console.warn('Could not save the working YouTube client:', err.message || err);
+  }
+}
+
+try {
+  const saved = JSON.parse(fs.readFileSync(PLAYBACK_STATE_FILE, 'utf8'));
+  if (PLAYER_CLIENT_CHAINS.includes(saved.preferredPlayerClient)) {
+    preferredPlayerClient = saved.preferredPlayerClient;
+    console.log(`🎛️ Trying the "${preferredPlayerClient}" YouTube client first (worked before the restart)`);
+  }
+} catch {}
 
 function recordPlaybackFailure(technicalReason, publicReason) {
   // Private, removed, or age-restricted videos are the song's problem, not the bot's.
@@ -952,6 +1003,8 @@ async function bootstrapAndPlay(message, voiceChannel, song, statusMsg, options 
   queueConstruct.songs.push(song, ...(options.rest || []));
   if (Number.isFinite(options.volume)) queueConstruct.targetVolume = options.volume;
   queue.set(guildId, queueConstruct);
+  // Find the audio while the bot joins voice instead of after.
+  prefetchSong(song);
 
   let connection;
   try {
@@ -1174,14 +1227,20 @@ async function getSongFromUrl(input) {
         ...getYtdlpBaseOptions(clientChains[i]),
         dumpSingleJson: true,
         skipDownload: true,
+        // Same lookup also picks the audio format, so a pasted link doesn't
+        // need a second yt-dlp run before it plays. Startup still checks it
+        // with FFmpeg and falls back to a fresh extraction if it is rejected.
+        format: 'bestaudio/best',
       });
 
+      const stream = selectAudioStream(videoInfo, clientChains[i]);
       return {
         id: createSongId(),
         title: videoInfo.title || url,
         url: videoInfo.webpage_url || videoInfo.original_url || url,
         duration: videoInfo.duration || null,
         thumbnail: videoInfo.thumbnail || (videoInfo.thumbnails && videoInfo.thumbnails[videoInfo.thumbnails.length - 1]?.url) || null,
+        ...(stream ? { prefetchedAudioStream: stream, prefetchedAt: Date.now() } : {}),
       };
     } catch (err) {
       const errMsg = (err?.stderr || err?.message || '').toLowerCase();
@@ -1252,26 +1311,84 @@ function moveSongNext(serverQueue, songId) {
   return { status: 'moved', song };
 }
 
-function maybePrefetchNextSong(serverQueue) {
-  const nextSong = serverQueue?.songs?.[1];
-  if (!nextSong || hasFreshAudioStream(nextSong) || nextSong.isPrefetching) return;
-
-  nextSong.isPrefetching = true;
-  getPlayableUrl(nextSong)
-    .then((url) => getAudioStream(url))
+// Resolve a song's stream ahead of playSong. playSong waits for a running
+// prefetch (see song.prefetchPromise) rather than starting a second one.
+// The first song is prefetched with only the preferred client while the bot
+// joins voice; playSong still owns the fallbacks. The next song is prefetched
+// in the background with every client.
+function prefetchSong(song, { background = false } = {}) {
+  if (!song || hasFreshAudioStream(song) || song.prefetchPromise) return;
+  const priority = { background };
+  const clients = background ? undefined : getPlayerClientChains().slice(0, 1);
+  song.prefetchPriority = priority;
+  song.prefetchPromise = getPlayableUrl(song)
+    .then((url) => getAudioStream(url, clients, priority))
     .then((stream) => {
-      if (stream) {
-        nextSong.prefetchedAudioStream = stream;
-        nextSong.prefetchedAt = Date.now();
-        console.log(`⚡ Prefetched audio stream for next track: ${nextSong.title}`);
-      }
+      if (!stream) throw new Error('yt-dlp did not return an audio URL');
+      song.prefetchedAudioStream = stream;
+      song.prefetchedAt = Date.now();
+      if (background) console.log(`⚡ Prefetched audio stream for next track: ${song.title}`);
     })
     .catch((err) => {
-      console.warn(`Prefetch failed for "${nextSong.title}":`, redactMediaUrls(err.message || err));
+      // playSong skips a client that just failed for this song.
+      if (clients) song.prefetchFailedClients = clients;
+      console.warn(`Prefetch failed for "${song.title}":`, redactMediaUrls(err.message || err));
     })
     .finally(() => {
-      nextSong.isPrefetching = false;
+      song.prefetchPromise = null;
+      song.prefetchPriority = null;
     });
+}
+
+function maybePrefetchNextSong(serverQueue) {
+  prefetchSong(serverQueue?.songs?.[1], { background: true });
+}
+
+// The loading sound fills the silence while a song is being prepared. It
+// starts only if preparing takes longer than LOADING_SOUND_DELAY_MS, so seeks
+// and prefetched songs stay instant. The song's own resource replaces it.
+const LOADING_SOUND_DELAY_MS = 1500;
+const LOADING_SOUND_VOLUME = 0.6;
+
+function isLoadingSoundPlaying(serverQueue) {
+  return Boolean(serverQueue.loadingResource) && serverQueue.player.state.resource === serverQueue.loadingResource;
+}
+
+function scheduleLoadingSound(guildId, serverQueue, delayMs = LOADING_SOUND_DELAY_MS) {
+  clearTimeout(serverQueue.loadingTimer);
+  serverQueue.loadingTimer = null;
+  // Skipping during the loading sound keeps it going into the next song.
+  if (!getLoadingSoundEnabled(guildId) || isLoadingSoundPlaying(serverQueue)) return;
+  serverQueue.loadingTimer = setTimeout(() => startLoadingSound(serverQueue), delayMs);
+  serverQueue.loadingTimer.unref?.();
+}
+
+function startLoadingSound(serverQueue) {
+  serverQueue.loadingTimer = null;
+  if (serverQueue.stopped || serverQueue.currentResource || isLoadingSoundPlaying(serverQueue)) return;
+  stopLoadingSound(serverQueue); // a stale one that a skip or stop already cut off
+  try {
+    const stream = createLoadingStream();
+    const resource = createAudioResource(stream, {
+      inputType: StreamType.Raw, inlineVolume: true, metadata: { loading: true },
+    });
+    resource.volume?.setVolume((serverQueue.targetVolume ?? 1) * LOADING_SOUND_VOLUME);
+    serverQueue.loadingStream = stream;
+    serverQueue.loadingResource = resource;
+    serverQueue.player.play(resource);
+  } catch (err) {
+    console.warn('Could not play the loading sound:', err.message || err);
+  }
+}
+
+function stopLoadingSound(serverQueue) {
+  if (!serverQueue) return;
+  clearTimeout(serverQueue.loadingTimer);
+  serverQueue.loadingTimer = null;
+  const stream = serverQueue.loadingStream;
+  serverQueue.loadingStream = null;
+  serverQueue.loadingResource = null;
+  stream?.destroy();
 }
 
 async function playSong(guildId, song, seekSeconds = 0, options = {}) {
@@ -1309,6 +1426,17 @@ async function playSong(guildId, song, seekSeconds = 0, options = {}) {
     serverQueue.targetVolume = vol;
 
     const failedClients = new Set(options.failedClients || []);
+    const startupBegan = Date.now();
+    scheduleLoadingSound(guildId, serverQueue);
+    // This song may already be extracting (it started while the bot joined
+    // voice, or as the next-song prefetch). Wait for that instead of running a
+    // second yt-dlp for the same song.
+    if (!options.recovering && !hasFreshAudioStream(song) && song.prefetchPromise) {
+      promoteYtdlp(song.prefetchPriority);
+      await untilAborted(song.prefetchPromise, signal);
+    }
+    for (const name of song.prefetchFailedClients || []) failedClients.add(name);
+    delete song.prefetchFailedClients;
     let playableUrl;
     const { stream, playback: { ffmpeg, resource } } = await prepareAudio({
       cachedStream: !options.recovering && hasFreshAudioStream(song) ? song.prefetchedAudioStream : null,
@@ -1331,9 +1459,11 @@ async function playSong(guildId, song, seekSeconds = 0, options = {}) {
             metadata: { title: song.title, playToken: myToken },
           });
           serverQueue.player.play(nextResource);
+          // The song replaced the loading sound in the player; release it.
+          stopLoadingSound(serverQueue);
           // Ogg headers alone aren't proof of playable audio. Wait for the
           // Discord player to decode/buffer packets before announcing success.
-          await entersState(serverQueue.player, AudioPlayerStatus.Playing,
+          await waitForResourcePlaying(serverQueue.player, nextResource,
             AbortSignal.any([signal, AbortSignal.timeout(20_000)]));
           signal.throwIfAborted();
           if (process.audioError) throw process.audioError;
@@ -1343,7 +1473,8 @@ async function playSong(guildId, song, seekSeconds = 0, options = {}) {
           try { process.kill('SIGKILL'); } catch {}
           if (serverQueue.currentProcess === process) {
             serverQueue.currentProcess = null;
-            serverQueue.player.stop(true);
+            // A failure before the song reached the player leaves the loading sound playing.
+            if (!isLoadingSoundPlaying(serverQueue)) serverQueue.player.stop(true);
           }
           throw process.audioError || err;
         }
@@ -1352,11 +1483,15 @@ async function playSong(guildId, song, seekSeconds = 0, options = {}) {
         if (!cached && playerClient) failedClients.add(playerClient);
         delete song.prefetchedAudioStream;
         console.warn(`Audio startup failed (${cached ? 'cached' : playerClient}): ${redactMediaUrls(getTechnicalErrorMessage(err))}`);
+        // Already slow: keep the room from going silent while the next client runs.
+        if (!signal.aborted) scheduleLoadingSound(guildId, serverQueue, 0);
       },
     });
     if (!isCurrent()) return false;
+    const startupMs = Date.now() - startupBegan;
     rememberWorkingClient(stream.playerClient);
     playbackHealth.lastSuccessAt = Date.now();
+    playbackHealth.lastStartMs = startupMs;
     playbackHealth.playerClient = stream.playerClient || playbackHealth.playerClient;
     song.prefetchedAudioStream = stream;
     song.prefetchedAt = Date.now();
@@ -1391,7 +1526,7 @@ async function playSong(guildId, song, seekSeconds = 0, options = {}) {
       await showOrUpdateNowPlaying(serverQueue, song);
     }
 
-    console.log(`▶️ Playing: ${song.title}${seekSeconds ? ` (from ${seekSeconds}s)` : ''}`);
+    console.log(`▶️ Playing: ${song.title}${seekSeconds ? ` (from ${seekSeconds}s)` : ''} · ready in ${(startupMs / 1000).toFixed(1)}s via ${stream.playerClient || 'cached stream'}`);
     maybePrefetchNextSong(serverQueue);
     return true;
   } catch (err) {
@@ -1400,6 +1535,7 @@ async function playSong(guildId, song, seekSeconds = 0, options = {}) {
     const publicReason = getPublicPlayErrorMessage(technicalReason);
     console.error('Play error:', redactMediaUrls(technicalReason));
     recordPlaybackFailure(technicalReason, publicReason);
+    stopLoadingSound(serverQueue);
     cleanupCurrentProcess(serverQueue);
     if (serverQueue.songs.length > 1) {
       sendPlaybackNotice(serverQueue, `⚠️ I couldn't play that track. ${publicReason} Trying the next song...`);
@@ -1464,7 +1600,7 @@ function getPublicPlayErrorMessage(reason) {
   return 'Please try another link or song name.';
 }
 
-async function getAudioStream(url, clientChains = getPlayerClientChains()) {
+async function getAudioStream(url, clientChains = getPlayerClientChains(), priority = {}) {
   assertYouTubeUrl(url);
 
   for (let i = 0; i < clientChains.length; i++) {
@@ -1478,7 +1614,7 @@ async function getAudioStream(url, clientChains = getPlayerClientChains()) {
         // challenge is solved. Prefer audio-only, but accept that fallback so
         // FFmpeg can still strip the video track and play the audio.
         format: 'bestaudio/best',
-      });
+      }, YTDLP_ATTEMPT_TIMEOUT_MS, priority);
 
       const stream = selectAudioStream(info, clientChains[i]);
       if (stream) return stream;
@@ -1548,6 +1684,7 @@ function advanceQueue(guildId, serverQueue, delayNext, errorReason = null) {
 
   serverQueue.currentSongId = null;
   serverQueue.advancingSongId = null;
+  stopLoadingSound(serverQueue);
   updatePresence(false);
   setVoiceChannelStatus(serverQueue.voiceChannel.id, '');
   stopNowPlayingTicker(serverQueue);
@@ -1741,6 +1878,7 @@ function teardownQueue(guildId, serverQueue, destroyConnection) {
     serverQueue.emptyVcTimeout = null;
   }
   cleanupCurrentProcess(serverQueue);
+  stopLoadingSound(serverQueue);
   serverQueue.player.stop(true);
 
   // Delete queue entry BEFORE destroying connection to prevent
