@@ -9,6 +9,12 @@ const path = require('path');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HISTORY_DAYS = 90;
+// Quarter-hour buckets for the last two days back the "Today" view. Fifteen
+// minutes lines up with every time zone's midnight (including +5:30 and
+// +5:45), so the page can show today's hours in the viewer's own time.
+const SLOT_MS = 15 * 60 * 1000;
+const SLOT_COUNT = 48 * 4;
+const UPTIME_RANGES = [7, 30, 90];
 const LOG_LIMIT = 200;
 const CHECK_TIMEOUT_MS = 8000;
 const STATUS_RANK = { operational: 0, unconfigured: 0, degraded: 1, down: 2 };
@@ -35,6 +41,13 @@ const MIN_ADMIN_TOKEN_LENGTH = 24;
 function dayKey(timestamp) {
   return new Date(timestamp).toISOString().slice(0, 10);
 }
+
+function slotStart(timestamp) {
+  return Math.floor(timestamp / SLOT_MS) * SLOT_MS;
+}
+
+const bucketUptime = (bucket) => (bucket.total - bucket.down - bucket.degraded * 0.5) / bucket.total;
+const roundPercent = (ratio) => Math.round(ratio * 10000) / 100;
 
 function envReport(env = process.env) {
   return ENV_KEYS.map(({ key, aliases = [], level, purpose }) => {
@@ -279,7 +292,9 @@ function publicHealth(snapshot, maintenance = {}) {
       name: names.get(component.id),
       status: component.status,
       uptime: component.uptime,
+      uptimes: component.uptimes,
       days: component.days.map(({ date, status, uptime }) => ({ date, status, uptime })),
+      slots: component.slots,
     }));
 
   return {
@@ -287,6 +302,8 @@ function publicHealth(snapshot, maintenance = {}) {
     maintenance: maintenance.enabled ? { enabled: true, message: String(maintenance.message || '') } : { enabled: false, message: '' },
     checkedAt: snapshot.checkedAt,
     historyDays: snapshot.historyDays,
+    slotsStart: snapshot.slotsStart,
+    slotMinutes: snapshot.slotMinutes,
     components,
     incidents: snapshot.incidents
       .filter((incident) => names.has(incident.component))
@@ -304,7 +321,7 @@ function worst(a, b) {
 }
 
 function emptyState() {
-  return { days: {}, current: {}, incidents: [], events: [] };
+  return { days: {}, slots: {}, current: {}, incidents: [], events: [] };
 }
 
 function loadState(file) {
@@ -312,6 +329,7 @@ function loadState(file) {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
     return {
       days: parsed.days && typeof parsed.days === 'object' ? parsed.days : {},
+      slots: parsed.slots && typeof parsed.slots === 'object' ? parsed.slots : {},
       current: parsed.current && typeof parsed.current === 'object' ? parsed.current : {},
       incidents: Array.isArray(parsed.incidents) ? parsed.incidents.slice(-LOG_LIMIT) : [],
       events: Array.isArray(parsed.events) ? parsed.events.slice(-LOG_LIMIT) : [],
@@ -334,6 +352,7 @@ function createHealthMonitor({
 
   const known = new Set(checks.map((check) => check.id));
   for (const id of Object.keys(state.days)) if (!known.has(id)) delete state.days[id];
+  for (const id of Object.keys(state.slots)) if (!known.has(id)) delete state.slots[id];
 
   const save = () => {
     if (!file || saveTimer) return;
@@ -356,6 +375,17 @@ function createHealthMonitor({
     for (const days of Object.values(state.days)) {
       for (const key of Object.keys(days)) if (key < oldest) delete days[key];
     }
+    const oldestSlot = slotStart(now()) - (SLOT_COUNT - 1) * SLOT_MS;
+    for (const slots of Object.values(state.slots)) {
+      for (const key of Object.keys(slots)) if (Number(key) < oldestSlot) delete slots[key];
+    }
+  };
+
+  const count = (buckets, key, status) => {
+    const bucket = buckets[key] || (buckets[key] = { total: 0, degraded: 0, down: 0 });
+    bucket.total += 1;
+    if (status === 'degraded') bucket.degraded += 1;
+    if (status === 'down') bucket.down += 1;
   };
 
   function recordEvent(kind, message) {
@@ -370,11 +400,8 @@ function createHealthMonitor({
     const isBroken = STATUS_RANK[status] > 0;
     if (isBroken && now() - createdAt < startupGraceMs) return;
     if (status !== 'unconfigured') {
-      const days = state.days[id] || (state.days[id] = {});
-      const bucket = days[dayKey(now())] || (days[dayKey(now())] = { total: 0, degraded: 0, down: 0 });
-      bucket.total += 1;
-      if (status === 'degraded') bucket.degraded += 1;
-      if (status === 'down') bucket.down += 1;
+      count(state.days[id] || (state.days[id] = {}), dayKey(now()), status);
+      count(state.slots[id] || (state.slots[id] = {}), String(slotStart(now())), status);
     }
 
     const open = state.incidents.findLast((incident) => incident.component === id && !incident.resolvedAt);
@@ -421,27 +448,38 @@ function createHealthMonitor({
 
   function dayStatus(bucket) {
     if (!bucket?.total) return { status: 'none', uptime: null };
-    const uptime = (bucket.total - bucket.down - bucket.degraded * 0.5) / bucket.total;
     const status = bucket.down ? 'down' : bucket.degraded ? 'degraded' : 'operational';
-    return { status, uptime: Math.round(uptime * 10000) / 100 };
+    return { status, uptime: roundPercent(bucketUptime(bucket)) };
   }
 
   function snapshot() {
     const today = now();
+    const slotsStart = slotStart(today) - (SLOT_COUNT - 1) * SLOT_MS;
     const components = checks.map((check) => {
       const days = state.days[check.id] || {};
-      let total = 0;
-      let weighted = 0;
       const history = [];
       for (let i = HISTORY_DAYS - 1; i >= 0; i -= 1) {
         const date = dayKey(today - i * DAY_MS);
-        const bucket = days[date];
-        if (bucket?.total) {
-          total += bucket.total;
-          weighted += bucket.total - bucket.down - bucket.degraded * 0.5;
-        }
-        history.push({ date, ...dayStatus(bucket) });
+        history.push({ date, ...dayStatus(days[date]) });
       }
+      // Uptime over the last 7, 30, and 90 days, weighted by checks per day.
+      const uptimes = {};
+      for (const range of UPTIME_RANGES) {
+        let total = 0;
+        let weighted = 0;
+        for (let i = 0; i < range; i += 1) {
+          const bucket = days[dayKey(today - i * DAY_MS)];
+          if (!bucket?.total) continue;
+          total += bucket.total;
+          weighted += bucket.total * bucketUptime(bucket);
+        }
+        uptimes[range] = total ? roundPercent(weighted / total) : null;
+      }
+      const slots = state.slots[check.id] || {};
+      const recent = Array.from({ length: SLOT_COUNT }, (_, i) => {
+        const bucket = slots[slotsStart + i * SLOT_MS];
+        return bucket?.total ? roundPercent(bucketUptime(bucket)) : null;
+      });
       const result = latest.get(check.id) || { status: 'pending', detail: 'Waiting for the first check' };
       // Failures right after a restart are usually a service still coming up
       // (track() doesn't record them either), so show them as starting.
@@ -453,8 +491,10 @@ function createHealthMonitor({
         status: starting ? 'starting' : result.status,
         detail: starting ? `Starting up · ${result.detail || result.status}` : result.detail || '',
         latencyMs: result.latencyMs ?? null,
-        uptime: total ? Math.round((weighted / total) * 10000) / 100 : null,
+        uptime: uptimes[HISTORY_DAYS],
+        uptimes,
         days: history,
+        slots: recent,
       };
     });
 
@@ -463,6 +503,8 @@ function createHealthMonitor({
       checkedAt,
       intervalMs,
       historyDays: HISTORY_DAYS,
+      slotsStart,
+      slotMinutes: SLOT_MS / 60000,
       components,
       incidents: [...state.incidents].reverse().slice(0, 50),
       events: [...state.events].reverse().slice(0, 50),
