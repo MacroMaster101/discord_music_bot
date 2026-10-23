@@ -17,5 +17,10 @@ fly.toml
 README.md
 .claude
 .superpowers
+.agents
+.codex
+.cursor
+AGENTS.md
+CLAUDE.md
 docs
 data
