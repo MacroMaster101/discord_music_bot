@@ -12,6 +12,9 @@ const HISTORY_DAYS = 90;
 const LOG_LIMIT = 200;
 const CHECK_TIMEOUT_MS = 8000;
 const STATUS_RANK = { operational: 0, unconfigured: 0, degraded: 1, down: 2 };
+// Right after a restart some parts are still coming up (Compose starts cloudflared
+// only once the bot is healthy), so failures in this window are shown but not logged.
+const STARTUP_GRACE_MS = 2 * 60 * 1000;
 
 // Configuration report. Only whether a value is set is ever exposed, never the value.
 const ENV_KEYS = [
@@ -315,8 +318,11 @@ function loadState(file) {
   }
 }
 
-function createHealthMonitor({ checks, file = null, now = Date.now, intervalMs = 60_000, logger = console } = {}) {
+function createHealthMonitor({
+  checks, file = null, now = Date.now, intervalMs = 60_000, startupGraceMs = STARTUP_GRACE_MS, logger = console,
+} = {}) {
   const state = file ? loadState(file) : emptyState();
+  const createdAt = now();
   const latest = new Map();
   let checkedAt = 0;
   let timer = null;
@@ -358,6 +364,8 @@ function createHealthMonitor({ checks, file = null, now = Date.now, intervalMs =
   function track(check, result) {
     const { id, name } = check;
     const status = result.status;
+    const isBroken = STATUS_RANK[status] > 0;
+    if (isBroken && now() - createdAt < startupGraceMs) return;
     if (status !== 'unconfigured') {
       const days = state.days[id] || (state.days[id] = {});
       const bucket = days[dayKey(now())] || (days[dayKey(now())] = { total: 0, degraded: 0, down: 0 });
@@ -366,7 +374,6 @@ function createHealthMonitor({ checks, file = null, now = Date.now, intervalMs =
       if (status === 'down') bucket.down += 1;
     }
 
-    const isBroken = STATUS_RANK[status] > 0;
     const open = state.incidents.findLast((incident) => incident.component === id && !incident.resolvedAt);
 
     if (isBroken && !open) {

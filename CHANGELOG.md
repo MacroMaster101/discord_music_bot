@@ -4,6 +4,9 @@ All notable changes to J4FN Music, newest first.
 
 ## [Unreleased]
 
+### Fixed
+- Deploys no longer log a false "Status website degraded" incident. Health failures in the first two minutes after a restart, while cloudflared is still starting, are shown but not recorded.
+
 ## [1.3.0] - 2026-10-23
 
 ### New
