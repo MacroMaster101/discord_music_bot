@@ -4,6 +4,9 @@ All notable changes to J4FN Music, newest first.
 
 ## [Unreleased]
 
+### Security
+- Resolved CodeQL findings: dashboard JSON escapes HTML characters, per-server settings can no longer write to object prototypes, the admin token parser avoids slow regex backtracking, client IPs are stripped of line breaks before logging, the yt-dlp cookies file is written to a private temporary directory, and YouTube links must use an exact YouTube host.
+
 ### Maintenance
 - Standardized feature and dependency updates through `dev` before production PRs to `main`, with branch checks, weekly Dependabot updates, and automatic synchronization after production merges.
 

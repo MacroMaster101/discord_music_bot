@@ -63,7 +63,8 @@ function sendJson(res, status, payload, isPublic = false) {
   const headers = securityHeaders('application/json; charset=utf-8');
   if (isPublic) headers['Access-Control-Allow-Origin'] = '*';
   res.writeHead(status, headers);
-  res.end(JSON.stringify(payload));
+  // Escape HTML metacharacters so echoed values stay inert even if the body is rendered as HTML.
+  res.end(JSON.stringify(payload).replace(/[<>&]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`));
 }
 
 function sendText(res, status, value) {
@@ -98,7 +99,7 @@ function safeEqual(left, right) {
 }
 
 function getRequestToken(req) {
-  const bearer = String(req.headers.authorization || '').match(/^Bearer\s+(.+)$/i);
+  const bearer = String(req.headers.authorization || '').match(/^Bearer\s+(\S.*)$/i);
   return bearer?.[1] || req.headers['x-admin-token'] || '';
 }
 
@@ -193,7 +194,8 @@ function clientIp(req) {
   // Every request arrives from Cloudflare, so socket address alone would throttle all
   // callers as one; CF-Connecting-IP carries the real client (Cloudflare overwrites it).
   // X-Forwarded-For is not trusted: a caller could rotate it to dodge the lockout.
-  return String(req.headers['cf-connecting-ip'] || req.socket?.remoteAddress || 'unknown');
+  // Line breaks are stripped so the value cannot forge entries in the lockout log.
+  return String(req.headers['cf-connecting-ip'] || req.socket?.remoteAddress || 'unknown').replace(/[\r\n]/g, '');
 }
 
 function loginRetryAfter(ip, now) {
