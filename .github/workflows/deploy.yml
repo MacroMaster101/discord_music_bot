@@ -46,6 +46,8 @@ jobs:
           YOUTUBE_DL_SKIP_DOWNLOAD: "1"
       - name: Check JavaScript syntax
         run: npm run check
+      - name: Verify native Opus installation
+        run: node -e "require('@discordjs/opus')"
       - name: Run tests
         run: npm test
 
@@ -93,8 +95,8 @@ jobs:
             cd ~/discord_music_bot
             # Weekly full rebuild, only while nobody is listening. The nightly
             # run rebuilds once 7 days have passed since the last full rebuild
-            # and no room is playing; at 14 days it rebuilds anyway (music
-            # resumes after the restart). Any full rebuild resets the clock.
+            # and no room is playing. Defer if activity cannot be checked;
+            # only an explicit manual full rebuild may interrupt listeners.
             full_state=.git/last-full-rebuild
             if [ "${SCHEDULED:-false}" = "true" ]; then
               now_s="$(date +%s)"
@@ -108,11 +110,14 @@ jobs:
                 exit 0
               fi
               port="$(grep -E '^PORT=[0-9]+$' .env | tail -n 1 | cut -d = -f 2 || true)"
-              listening="$(docker exec discord-music-bot node -e "fetch('http://127.0.0.1:${port:-8080}/api/public/status').then((r) => r.json()).then((d) => console.log((d.activeTracks || []).length)).catch(() => console.log(0))" 2>/dev/null || true)"
+              listening="$(docker exec discord-music-bot node -e "fetch('http://127.0.0.1:${port:-8080}/api/public/status', { signal: AbortSignal.timeout(5000) }).then((r) => { if (!r.ok) throw new Error('Status unavailable'); return r.json(); }).then((d) => { if (!Array.isArray(d.activeTracks)) throw new Error('Activity unavailable'); console.log(d.activeTracks.length); }).catch(() => { process.exitCode = 1; })" 2>/dev/null || true)"
               case "$listening" in
-                '' | *[!0-9]*) listening=0 ;;
+                '' | *[!0-9]*)
+                  echo "Cannot confirm the bot is idle. Trying the weekly rebuild again tomorrow night."
+                  exit 0
+                  ;;
               esac
-              if [ "$listening" -gt 0 ] && [ "$age_days" -lt 14 ]; then
+              if [ "$listening" -gt 0 ]; then
                 echo "Weekly rebuild is due, but music is playing in $listening room(s). Trying again tomorrow night."
                 exit 0
               fi

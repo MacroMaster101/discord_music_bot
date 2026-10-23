@@ -217,7 +217,7 @@ It runs weekly, but only when nobody is listening. Every night at 03:00 Sri Lank
 
 - **Not due yet:** if the last full rebuild was less than 7 days ago, nothing happens.
 - **Due:** if no room is playing music, it rebuilds. If music is playing, it tries again the next night.
-- **Overdue:** at 14 days it rebuilds even if music is playing, and the music resumes after the restart.
+- **Activity unavailable:** if the bot cannot confirm it is idle, the rebuild waits until the next night. Scheduled rebuilds never force an interruption, even when overdue.
 
 The time of the last full rebuild is kept in `.git/last-full-rebuild` on the server. Each nightly check shows up as a short run in the Actions tab, even when it decides to do nothing. To run a full rebuild now, open **Actions → Deploy Bot to AWS EC2 → Run workflow** and tick **Full rebuild**, or:
 
