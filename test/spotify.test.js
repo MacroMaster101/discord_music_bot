@@ -55,7 +55,7 @@ test('client reads a track with a cached client-credentials token', async () => 
     spotifyUrl: `https://open.spotify.com/track/${TRACK_ID}`, image: 'https://i.scdn.co/a.jpg',
   });
   await client.getTrack(TRACK_ID);
-  assert.equal(calls.filter((call) => call.url.includes('accounts.spotify.com')).length, 1);
+  assert.equal(calls.filter((call) => new URL(call.url).hostname === 'accounts.spotify.com').length, 1);
   assert.equal(calls[0].options.headers.Authorization, `Basic ${Buffer.from('id:secret').toString('base64')}`);
   assert.equal(calls[1].options.headers.Authorization, 'Bearer tok');
 });

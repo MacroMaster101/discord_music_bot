@@ -89,12 +89,13 @@ let presenceInterval = null;
 const PRESENCE_ROTATE_MS = 12000;
 
 // Player clients — tried one at a time when YouTube blocks a request.
-// Do not combine mweb with `default`: a combined extraction can return formats
-// from a different client and our format picker may then choose a URL that does
-// not carry the mweb GVS PO token. mweb is yt-dlp's recommended client when a
-// PO-token provider is installed; the remaining clients are limited fallbacks.
+// Prefer mweb with the PO-token provider, then let yt-dlp choose its current
+// defaults. The default route can expose a working combined WEB format even
+// when forced clients receive API 403s. Keep these as separate attempts so the
+// selected format retains its own headers and token.
 const PLAYER_CLIENT_CHAINS = [
   'mweb',
+  'default',
   'web_safari',
   'web_embedded',
   // Account cookies are unsupported by android_vr, so keep it last as a
@@ -114,9 +115,10 @@ function resolveCookiesPath() {
     return YTDLP_COOKIES_PATH;
   }
   if (YTDLP_COOKIES_BASE64) {
-    const tmpDir = os.tmpdir();
-    const cookiesFile = path.join(tmpDir, 'ytdlp_cookies.txt');
-    fs.writeFileSync(cookiesFile, Buffer.from(YTDLP_COOKIES_BASE64, 'base64'));
+    // A private, randomly named directory keeps other local users from reading or pre-creating the file.
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ytdlp-'));
+    const cookiesFile = path.join(tmpDir, 'cookies.txt');
+    fs.writeFileSync(cookiesFile, Buffer.from(YTDLP_COOKIES_BASE64, 'base64'), { mode: 0o600, flag: 'wx' });
     return cookiesFile;
   }
   return null;
@@ -160,7 +162,9 @@ function getYtdlpBaseOptions(playerClientOverride) {
   }
   // Legacy manual PO token still honored if explicitly set (auto-provider preferred).
   // Modern yt-dlp requires CLIENT.CONTEXT+TOKEN; this token is for GVS media URLs.
-  if (YTDLP_PO_TOKEN) {
+  // `default` is a selector, not a real client/token namespace. Let the provider
+  // attach tokens to whichever clients yt-dlp selects for that attempt.
+  if (YTDLP_PO_TOKEN && playerClient !== 'default') {
     const tokenClient = playerClient.split(',')[0];
     opts.extractorArgs[0] += `;po_token=${tokenClient}.gvs+${YTDLP_PO_TOKEN}`;
   }
@@ -1023,7 +1027,7 @@ function normalizeMediaUrl(input) {
     if (videoId) return `https://www.youtube.com/watch?v=${videoId}`;
   }
 
-  if (url.hostname.endsWith('youtube.com')) {
+  if (YOUTUBE_HOSTS.has(url.hostname.toLowerCase())) {
     const videoId = url.searchParams.get('v');
     if (videoId) return `https://www.youtube.com/watch?v=${videoId}`;
 

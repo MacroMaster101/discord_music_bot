@@ -1,0 +1,25 @@
+name: Route Dependabot PRs to dev
+
+# Dependabot opens security-fix PRs against the default branch (main) and
+# ignores target-branch for them. Move those PRs to dev so every dependency
+# update follows feature -> dev -> main. No PR code is checked out or run.
+on:
+  pull_request_target:
+    types: [opened, reopened]
+    branches: [main]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  retarget:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Change base branch to dev
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          gh pr edit "$PR_URL" --base dev
+          gh pr comment "$PR_URL" --body 'Moved to `dev`: dependency updates reach `main` only through a `dev -> main` release PR.'

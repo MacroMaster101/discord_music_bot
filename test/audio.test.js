@@ -41,6 +41,49 @@ test('supports requested downloads, preserves per-format headers, and rejects un
   assert.equal(args[args.indexOf('-headers') + 1], 'Good: ok\r\n');
 });
 
+test('accepts the checked combined WEB format when audio-only formats are unavailable', () => {
+  const stream = selectAudioStream({
+    url: 'https://media.example/combined', format_id: '18', ext: 'mp4',
+    vcodec: 'avc1.42001E', acodec: 'mp4a.40.2',
+    http_headers: { 'User-Agent': 'selected web client' },
+  }, 'default');
+  assert.ok(stream);
+  assert.equal(stream.playerClient, 'default');
+  const args = buildFfmpegArgs(stream);
+  assert.equal(args[args.indexOf('-i') + 1], stream.url);
+  assert.ok(args.includes('-vn'), 'FFmpeg strips video from the combined format');
+});
+
+function extractorConfig(cookies = null, manualToken = null) {
+  const source = fs.readFileSync(path.join(__dirname, '../index.js'), 'utf8').replace(/\r\n/g, '\n');
+  const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
+  return vm.runInNewContext([
+    section('const PLAYER_CLIENT_CHAINS =', 'const YTDLP_ATTEMPT_TIMEOUT_MS'),
+    section('function getYtdlpBaseOptions(', '// youtube-dl-exec exposes'),
+    section('function getPlayerClientChains(', 'async function setVoiceChannelStatus('),
+    '({ getPlayerClientChains, getYtdlpBaseOptions })',
+  ].join('\n'), { tempCookiesPath: cookies, YTDLP_PO_TOKEN: manualToken, process: { env: {} } });
+}
+
+test('production client selection includes default separately with and without cookies', () => {
+  for (const cookies of [null, '/app/data/cookies.txt']) {
+    const config = extractorConfig(cookies);
+    const clients = Array.from(config.getPlayerClientChains());
+    assert.deepEqual(clients.slice(0, 2), ['mweb', 'default']);
+    assert.equal(clients.includes('android_vr'), !cookies);
+    assert.ok(clients.every((name) => !name.includes(',')));
+    assert.equal(config.getYtdlpBaseOptions('default').extractorArgs[0], 'youtube:player_client=default');
+    assert.equal(Boolean(config.getYtdlpBaseOptions('default').cookies), Boolean(cookies));
+  }
+});
+
+test('default clients use provider tokens rather than an invalid default.gvs namespace', () => {
+  const config = extractorConfig('/app/data/cookies.txt', 'manual-test-token');
+  assert.match(config.getYtdlpBaseOptions('mweb').extractorArgs[0], /po_token=mweb\.gvs\+manual-test-token/);
+  assert.equal(config.getYtdlpBaseOptions('default').extractorArgs[0], 'youtube:player_client=default');
+  assert.equal(config.getYtdlpBaseOptions('default').extractorArgs[1], 'youtubepot-bgutilhttp:base_url=http://bgutil-provider:4416');
+});
+
 test('checks cached stream expiry while keeping headers with the cached URL', () => {
   const now = Date.now();
   const song = { prefetchedAudioStream: { url: `https://media.example/audio?expire=${Math.floor(now / 1000) + 3600}`, headers: { Referer: 'youtube' } } };
@@ -187,7 +230,7 @@ function playbackHarness(options = {}) {
     AudioPlayerStatus, StreamType, entersState, hasFreshAudioStream, prepareAudio, redactMediaUrls, waitForAudio,
     console: { log() {}, warn() {}, error() {} }, stats: { totalSongsPlayed: 0 },
     clearIdleDisconnect() {}, getDefaultVolume: () => 100,
-    getPlayerClientChains: () => ['mweb', 'web_safari'],
+    getPlayerClientChains: () => options.clients || ['mweb', 'web_safari'],
     getPlayableUrl: async () => song.url,
     getAudioStream: async (url, [playerClient]) => {
       extracted.push(playerClient);
@@ -261,6 +304,27 @@ test('production retries a 403 without advancing or announcing the failed client
   h.context.cleanupCurrentProcess(h.serverQueue);
 });
 
+test('production retries a forced-client API 403 using the default combined WEB format', async () => {
+  const h = playbackHarness({
+    clients: Array.from(extractorConfig('/app/data/cookies.txt').getPlayerClientChains()),
+    extract: async (playerClient) => {
+      if (playerClient === 'mweb') throw new Error('Unable to download API page: HTTP Error 403: Forbidden');
+      assert.equal(playerClient, 'default');
+      return selectAudioStream({
+        url: 'https://media.example/format18', format_id: '18',
+        vcodec: 'avc1.42001E', acodec: 'mp4a.40.2',
+        http_headers: { 'User-Agent': 'selected web client' },
+      }, playerClient);
+    },
+  });
+  assert.equal(await h.context.playSong('guild', h.song), true);
+  assert.deepEqual(h.extracted, ['mweb', 'default']);
+  assert.equal(h.notices.length, 1);
+  assert.equal(h.advanced.length, 0);
+  assert.equal(h.song.prefetchedAudioStream.playerClient, 'default');
+  h.context.cleanupCurrentProcess(h.serverQueue);
+});
+
 test('skip during extraction cancels the old task and advances exactly once', async () => {
   let resolveExtraction;
   const h = playbackHarness({ extract: () => new Promise((resolve) => { resolveExtraction = resolve; }) });
@@ -313,21 +377,24 @@ test('a mid-song failure retries once, and exhausted clients advance without ann
 // This exercises the actual HTTP -> FFmpeg -> Ogg/Opus -> Discord player path,
 // without logging in to Discord or depending on YouTube availability/cookies.
 const hasFfmpeg = spawnSync('ffmpeg', ['-version'], { windowsHide: true }).status === 0;
-test('real FFmpeg retries a 403, forwards required headers, and produces playable Discord audio', { skip: !hasFfmpeg }, async () => {
+test('real FFmpeg retries a 403, forwards headers, and plays audio from a combined MP4', { skip: !hasFfmpeg }, async () => {
   const { createAudioPlayer, createAudioResource, entersState, AudioPlayerStatus, StreamType, NoSubscriberBehavior } = require('@discordjs/voice');
-  const wav = Buffer.alloc(44 + 48000 * 2);
-  wav.write('RIFF'); wav.writeUInt32LE(wav.length - 8, 4); wav.write('WAVEfmt ', 8);
-  wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
-  wav.writeUInt32LE(48000, 24); wav.writeUInt32LE(96000, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
-  wav.write('data', 36); wav.writeUInt32LE(wav.length - 44, 40);
-  for (let i = 0; i < 48000; i++) wav.writeInt16LE(Math.round(8000 * Math.sin(2 * Math.PI * 440 * i / 48000)), 44 + i * 2);
+  const generated = spawnSync('ffmpeg', [
+    '-hide_banner', '-loglevel', 'error',
+    '-f', 'lavfi', '-i', 'color=c=black:s=16x16:r=5',
+    '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000',
+    '-t', '1', '-c:v', 'mpeg4', '-c:a', 'aac',
+    '-movflags', 'frag_keyframe+empty_moov', '-f', 'mp4', 'pipe:1',
+  ], { windowsHide: true, timeout: 10_000 });
+  assert.equal(generated.status, 0, generated.stderr?.toString());
+  const mp4 = generated.stdout;
   const requests = [];
   const server = http.createServer((req, res) => {
     requests.push(req.url);
     if (req.url === '/blocked' || req.headers['user-agent'] !== 'audio-regression' || req.headers.referer !== 'https://www.youtube.com/') {
       res.writeHead(403).end(); return;
     }
-    res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': wav.length }).end(wav);
+    res.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': mp4.length }).end(mp4);
   });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   const player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Play } });

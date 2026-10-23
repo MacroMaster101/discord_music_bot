@@ -6,8 +6,8 @@
   "license": "MIT",
   "scripts": {
     "start": "node index.js",
-    "check": "node --check index.js && node --check audio.js && node --check playback-notifications.js && node --check server.js && node --check settings.js && node --check spotify.js && node --check resume.js && node --check slash-commands.js && node --check web/public.js && node --check web/admin.js",
-    "test": "node test/server.test.js && node test/spotify.test.js && node test/resume.test.js && node test/slash-commands.test.js && node test/audio.test.js"
+    "check": "node --check index.js && node --check audio.js && node --check playback-notifications.js && node --check server.js && node --check settings.js && node --check spotify.js && node --check resume.js && node --check slash-commands.js && node --check scripts/check-branch-flow.js && node --check web/public.js && node --check web/admin.js",
+    "test": "node test/server.test.js && node test/spotify.test.js && node test/resume.test.js && node test/slash-commands.test.js && node test/audio.test.js && node test/branch-flow.test.js"
   },
   "engines": {
     "node": ">=22.12.0"
@@ -16,11 +16,11 @@
     "@discordjs/opus": "^0.10.0",
     "@discordjs/voice": "^0.19.2",
     "discord.js": "^14.26.4",
-    "dotenv": "^17.4.2",
+    "dotenv": "^18.0.8",
     "ffmpeg-static": "^5.3.0",
     "libsodium-wrappers": "^0.8.4",
     "opusscript": "0.0.8",
-    "youtube-dl-exec": "^3.1.7",
+    "youtube-dl-exec": "^3.1.17",
     "yt-search": "^2.13.1"
   },
   "overrides": {
