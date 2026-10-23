@@ -78,11 +78,33 @@ function sendText(res, status, value) {
   res.end(value);
 }
 
+// Cloudflare's Browser Cache TTL can override Cache-Control on assets, so a deploy
+// would leave browsers on stale CSS and JS for hours. Pages link each asset with a
+// hash of its contents (?v=...), giving every changed file a new URL.
+const assetVersions = new Map();
+function assetVersion(fileName) {
+  if (!assetVersions.has(fileName)) {
+    let version = '';
+    try {
+      version = crypto.createHash('sha256').update(fs.readFileSync(path.join(WEB_DIR, fileName))).digest('hex').slice(0, 10);
+    } catch {}
+    assetVersions.set(fileName, version);
+  }
+  return assetVersions.get(fileName);
+}
+
+function versionAssetLinks(html) {
+  return html.replace(/(["'])(\/assets\/[\w.-]+)\1/g, (match, quote, assetPath) => {
+    const version = STATIC_FILES.has(assetPath) ? assetVersion(STATIC_FILES.get(assetPath)[0]) : '';
+    return version ? `${quote}${assetPath}?v=${version}${quote}` : match;
+  });
+}
+
 function sendFile(res, fileName, contentType, cacheControl = 'no-store') {
   fs.readFile(path.join(WEB_DIR, fileName), (error, body) => {
     if (error) return sendText(res, 500, 'Dashboard asset unavailable.');
     res.writeHead(200, securityHeaders(contentType, cacheControl));
-    res.end(body);
+    res.end(contentType.startsWith('text/html') ? versionAssetLinks(body.toString('utf8')) : body);
   });
 }
 
