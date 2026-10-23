@@ -31,7 +31,7 @@ RUN wget -q https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/down
 # Install the exact bgutil plugin release used by the Compose sidecar. The
 # portable yt-dlp binary does not discover arbitrary pip site-packages, but it
 # does discover plugin archives in this standard system plugin directory.
-ARG BGUTIL_VERSION=1.3.1
+ARG BGUTIL_VERSION=2.0.2
 RUN mkdir -p /etc/yt-dlp/plugins \
     && wget -q "https://github.com/Brainicism/bgutil-ytdlp-pot-provider/releases/download/${BGUTIL_VERSION}/bgutil-ytdlp-pot-provider.zip" \
         -O /etc/yt-dlp/plugins/bgutil-ytdlp-pot-provider.zip \
