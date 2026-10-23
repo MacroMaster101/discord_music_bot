@@ -4,6 +4,20 @@ on:
   push:
     branches:
       - main
+    # Docs never reach the image (see .dockerignore), so skip the deploy.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+  workflow_dispatch:
+    inputs:
+      full_rebuild:
+        description: 'Full rebuild: fresh base image and packages, no build cache, restart every container'
+        type: boolean
+        default: false
+  schedule:
+    # Weekly full rebuild for OS and package updates: Monday 03:00 Sri Lanka time.
+    - cron: '30 21 * * 0'
 
 permissions:
   contents: read
@@ -36,27 +50,46 @@ jobs:
 
   deploy:
     needs: verify
+    # The server always deploys origin/main, whichever ref a manual run picks.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     environment:
       name: production
       url: https://music.j4fn.site
 
     steps:
+      - name: Find the newest yt-dlp nightly
+        id: ytdlp
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$(gh api repos/yt-dlp/yt-dlp-nightly-builds/releases/latest --jq .tag_name || true)"
+          case "$tag" in
+            '' | *[!0-9.]*)
+              echo "::warning::Could not read the newest yt-dlp nightly tag; the image keeps its cached yt-dlp."
+              tag=latest
+              ;;
+          esac
+          echo "yt-dlp nightly: $tag"
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
           YTDLP_COOKIES_BASE64: ${{ secrets.YTDLP_COOKIES_BASE64 }}
           CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
+          YTDLP_VERSION: ${{ steps.ytdlp.outputs.version }}
+          FULL_REBUILD: ${{ github.event_name == 'schedule' || inputs.full_rebuild == true }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: YTDLP_COOKIES_BASE64,CLOUDFLARE_TUNNEL_TOKEN
+          envs: YTDLP_COOKIES_BASE64,CLOUDFLARE_TUNNEL_TOKEN,YTDLP_VERSION,FULL_REBUILD
           command_timeout: 15m
-          script_stop: true
           script: |
             set -eu
             cd ~/discord_music_bot
+            before="$(git rev-parse HEAD)"
             attempt=1
             until git pull --ff-only origin main; do
               if [ "$attempt" -ge 3 ]; then
@@ -67,6 +100,8 @@ jobs:
               attempt=$((attempt + 1))
               sleep 5
             done
+            echo "Commits in this deploy:"
+            git log --oneline "$before..HEAD"
             test -f .env
             chmod 600 .env
             if ! grep -Eq '^ADMIN_TOKEN=.{24,}$' .env; then
@@ -79,20 +114,51 @@ jobs:
               chmod 600 data/cookies.txt
             fi
             if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
+              # Keep the operator's lines (without trailing blank lines) and
+              # append the managed keys, so the same token writes the same
+              # bytes. Replace .env only when it actually changes.
               env_tmp="$(mktemp)"
-              grep -v -E '^(TUNNEL_TOKEN|COMPOSE_PROFILES|DASHBOARD_BIND_ADDRESS)=' .env > "$env_tmp" || true
+              grep -v -E '^(TUNNEL_TOKEN|COMPOSE_PROFILES|DASHBOARD_BIND_ADDRESS)=' .env \
+                | awk 'length($0) { while (blank > 0) { print ""; blank-- } print; next } { blank++ }' > "$env_tmp" || true
               printf '\nTUNNEL_TOKEN=%s\nCOMPOSE_PROFILES=tunnel\nDASHBOARD_BIND_ADDRESS=127.0.0.1\n' "$CLOUDFLARE_TUNNEL_TOKEN" >> "$env_tmp"
-              chmod 600 "$env_tmp"
-              mv "$env_tmp" .env
+              if cmp -s "$env_tmp" .env; then
+                rm -f "$env_tmp"
+              else
+                chmod 600 "$env_tmp"
+                mv "$env_tmp" .env
+              fi
             fi
-            # --force-recreate: the bot reads the bind-mounted .env at startup, and
-            # rewriting .env above replaces the file, so an existing container
-            # would keep seeing the old one. Always start from a fresh container.
-            # Refresh yt-dlp even when its download layer would otherwise be
-            # cached; an old extractor can return no playable YouTube formats.
-            docker compose pull bgutil-provider
-            docker compose build --no-cache bot
-            docker compose up -d --remove-orphans --force-recreate
+            # The bot reads the bind-mounted .env only at startup, so restart it
+            # when .env differs from the last successful deploy. The hash lives
+            # in .git, which git ignores and the image never contains.
+            env_state=.git/deployed-env.sha256
+            env_hash="$(sha256sum .env | cut -d ' ' -f 1)"
+            env_changed=""
+            if [ "$(cat "$env_state" 2>/dev/null || true)" != "$env_hash" ]; then
+              env_changed=1
+            fi
+            build_args="--build-arg YTDLP_VERSION=${YTDLP_VERSION:-latest}"
+            if [ "${FULL_REBUILD:-false}" = "true" ]; then
+              echo "Full rebuild: fresh base image and packages, every container restarts"
+              if grep -q '^COMPOSE_PROFILES=.*tunnel' .env; then
+                docker compose pull bgutil-provider cloudflared
+              else
+                docker compose pull bgutil-provider
+              fi
+              docker compose build --pull --no-cache $build_args bot
+              docker compose up -d --remove-orphans --force-recreate
+            else
+              # Cached build: only layers whose inputs changed are rebuilt (app
+              # code, package files, or a new yt-dlp nightly). Compose then
+              # recreates only containers whose image or settings changed, so
+              # cloudflared and the PO-token provider keep running.
+              docker compose build $build_args bot
+              if [ -n "$env_changed" ]; then
+                echo ".env changed since the last deploy; restarting the bot"
+                docker compose up -d --force-recreate bot
+              fi
+              docker compose up -d --remove-orphans
+            fi
             health="starting"
             for _ in $(seq 1 48); do
               health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' discord-music-bot 2>/dev/null || true)"
@@ -113,4 +179,10 @@ jobs:
             if grep -q '^COMPOSE_PROFILES=.*tunnel' .env; then
               docker compose logs --tail=30 cloudflared
               test "$(docker inspect --format '{{.State.Running}}' music-cloudflared)" = "true"
+            fi
+            printf '%s\n' "$env_hash" > "$env_state"
+            # Old bot images become untagged after each build; keep the disk tidy.
+            docker image prune -f
+            if [ "${FULL_REBUILD:-false}" = "true" ]; then
+              docker builder prune -f --filter until=72h
             fi

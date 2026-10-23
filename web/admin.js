@@ -164,7 +164,7 @@
   }
 
   const HEALTH_LABELS = {
-    operational: 'Operational', degraded: 'Degraded', down: 'Down', unconfigured: 'Not configured', pending: 'Checking',
+    operational: 'Operational', degraded: 'Degraded', down: 'Down', unconfigured: 'Not configured', pending: 'Checking', starting: 'Starting',
   };
   const OVERALL_LABELS = {
     operational: 'All systems operational',
@@ -172,6 +172,7 @@
     partial: 'Partial outage',
     major: 'Major outage: the bot is offline',
     pending: 'Checking systems…',
+    starting: 'Starting up after a restart…',
   };
   const formatDateTime = (timestamp) => new Date(timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   const formatSpan = (ms) => {
