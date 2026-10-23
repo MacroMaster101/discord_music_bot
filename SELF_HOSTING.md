@@ -139,6 +139,26 @@ The privacy of the public data is covered by automated tests.
 
 Modern `yt-dlp` needs a JavaScript runtime and, on datacenter IPs, Proof-of-Origin (PO) tokens. The Docker image uses Node.js as the runtime, and the `bgutil-provider` container mints PO tokens automatically.
 
+The provider sidecar and the plugin inside the bot image use the same `BGUTIL_VERSION` (default `2.0.2`). After upgrading, remove an older `BGUTIL_VERSION` override from `.env`, or set it to `2.0.2`, then update **both** services. A container restart alone does not rebuild yt-dlp or its plugin:
+
+```bash
+docker compose pull bgutil-provider
+docker compose build --no-cache bot
+docker compose up -d bgutil-provider bot
+docker compose logs --tail=100 bot bgutil-provider
+```
+
+The provider is reachable only inside the Compose network; do not publish port 4416 to the host. The official Docker image listens on all container interfaces, so the separate bot container can reach it.
+
+If the bot joins voice but stays silent, check the logs immediately after `/play`:
+
+- **HTTP 403 / Forbidden:** YouTube rejected the media download. The bot tries fresh extraction and alternative clients before giving up. PO tokens cannot bypass every IP or login restriction; cookies may still be required on an EC2/datacenter IP.
+- **Sign in to confirm you're not a bot:** Refresh the cookies below, and check the provider logs for failed token requests.
+- **Requested format is not available:** Rebuild with `--no-cache` as above to refresh yt-dlp, its bundled JavaScript solver, and the token plugin. Failed extractions retain yt-dlp warnings in the logs, which help distinguish cookies, challenge-solving, and token problems.
+- **Voice connection timeout/error:** Check the bot's Connect and Speak permissions and the host's outbound UDP connectivity. An inbound dashboard/tunnel connection does not carry Discord voice audio.
+- **FFmpeg missing or no playable audio:** Rebuild the bot image. The bot waits for actual player startup before announcing Now Playing, and logs which client failed without printing signed media URLs.
+- **Discord Missing Access / Missing Permissions:** Give the bot View Channel, Send Messages, and Embed Links in its music text channel, plus Connect and Speak in the voice channel. The separate voice-channel status label also needs Set Voice Channel Status; a failed label update does not stop audio. A failed playback notice is logged without crashing the process.
+
 For login-restricted videos you can add YouTube cookies:
 
 1. Export cookies in **Netscape format** (for example with the *Get cookies.txt LOCALLY* extension). Use a throwaway Google account; heavy server use can get an account flagged.

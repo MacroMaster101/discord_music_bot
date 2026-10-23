@@ -1,5 +1,4 @@
 require('dotenv').config();
-const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -10,6 +9,10 @@ const {
 } = require('./spotify');
 const { loadSnapshots, resumePosition, saveSnapshots, snapshotQueue } = require('./resume');
 const { commandDefinitions, definitionsSignature, toPrefixCommand } = require('./slash-commands');
+const {
+  hasFreshAudioStream, prepareAudio, redactMediaUrls, selectAudioStream, spawnAudioProcess, waitForAudio,
+} = require('./audio');
+const { sendPlaybackNotice } = require('./playback-notifications');
 
 settings.load();
 
@@ -130,9 +133,9 @@ function getYtdlpBaseOptions(playerClientOverride) {
   // Override via BGUTIL_BASE_URL if the service name/port differs.
   const bgutilBaseUrl = process.env.BGUTIL_BASE_URL || 'http://bgutil-provider:4416';
   const opts = {
-    noWarnings: true,
+    // Leave warnings enabled so failed extractions retain diagnostics about
+    // expired cookies, JS challenges, and missing PO tokens.
     noPlaylist: true,
-    noCheckFormats: true,
     // Avoid hammering YouTube with consecutive authenticated API requests.
     sleepRequests: 1,
     // yt-dlp enables Deno by default, but its challenge solver is repeatedly
@@ -860,6 +863,7 @@ async function appendAndMaybePlay(guildId, serverQueue, song, statusMsg) {
 async function bootstrapAndPlay(message, voiceChannel, song, statusMsg, options = {}) {
   const guildId = message.guild.id;
   const queueConstruct = {
+    guildId,
     textChannel: message.channel,
     voiceChannel,
     connection: null,
@@ -935,6 +939,7 @@ async function bootstrapAndPlay(message, voiceChannel, song, statusMsg, options 
 
   queueConstruct.player.on(AudioPlayerStatus.Idle, (oldState) => {
     if (queueConstruct.stopped) return;
+    if (!queueConstruct.currentResource) return; // preparing/replacing a stream
     // Only advance if the resource that JUST ENDED is the one we currently
     // consider live. A seek/skip kills the old ffmpeg → its resource goes Idle,
     // but by then currentResource points at the NEW stream, so the stale Idle
@@ -942,18 +947,21 @@ async function bootstrapAndPlay(message, voiceChannel, song, statusMsg, options 
     const endedToken = oldState?.resource?.metadata?.playToken;
     const liveToken = queueConstruct.currentResource?.metadata?.playToken;
     if (endedToken !== liveToken) return; // superseded stream ended — ignore
+    if (queueConstruct.currentProcess?.audioError) {
+      queueConstruct.currentResource.metadata.onFailure(queueConstruct.currentProcess.audioError);
+      return;
+    }
     advanceQueue(guildId, queueConstruct, false);
   });
 
   queueConstruct.player.on('error', (error) => {
     if (queueConstruct.stopped) return;
+    if (!queueConstruct.currentResource) return; // startup handles its own errors
     // Same identity guard: ignore errors from a superseded/killed stream.
     const erroredToken = error?.resource?.metadata?.playToken;
     const liveToken = queueConstruct.currentResource?.metadata?.playToken;
     if (erroredToken !== undefined && erroredToken !== liveToken) return;
-    console.error('Player error:', error.message || error);
-    queueConstruct.textChannel.send('❌ Playback error, skipping...').catch(() => {});
-    advanceQueue(guildId, queueConstruct, true);
+    queueConstruct.currentResource.metadata.onFailure(error);
   });
 
   try {
@@ -1131,22 +1139,6 @@ async function getSongFromUrl(input) {
   };
 }
 
-function getBestAudioUrl(info) {
-  const formats = Array.isArray(info?.formats) ? info.formats : [];
-  const audioFormats = formats
-    .filter((format) => format.url && format.acodec && format.acodec !== 'none' && (!format.vcodec || format.vcodec === 'none'))
-    .sort((a, b) => {
-      // Penalize HLS (m3u8) since ffmpeg reconnect handling is flaky for chunked streams
-      const aHls = (a.protocol || '').includes('m3u8') || (a.url || '').includes('.m3u8');
-      const bHls = (b.protocol || '').includes('m3u8') || (b.url || '').includes('.m3u8');
-      const aScore = (a.abr || a.tbr || 0) + (a.ext === 'webm' ? 1000 : 0) + (aHls ? -5000 : 0);
-      const bScore = (b.abr || b.tbr || 0) + (b.ext === 'webm' ? 1000 : 0) + (bHls ? -5000 : 0);
-      return bScore - aScore;
-    });
-
-  return audioFormats[0]?.url || info?.url || null;
-}
-
 function createMusicControls(playNextSongId, options = {}) {
   const buttons = [];
 
@@ -1197,42 +1189,30 @@ function moveSongNext(serverQueue, songId) {
 
 function maybePrefetchNextSong(serverQueue) {
   const nextSong = serverQueue?.songs?.[1];
-  if (!nextSong || nextSong.prefetchedAudioUrl || nextSong.isPrefetching) return;
+  if (!nextSong || hasFreshAudioStream(nextSong) || nextSong.isPrefetching) return;
 
   nextSong.isPrefetching = true;
   getPlayableUrl(nextSong)
-    .then(getAudioUrl)
-    .then((url) => {
-      if (url) {
-        nextSong.prefetchedAudioUrl = url;
+    .then((url) => getAudioStream(url))
+    .then((stream) => {
+      if (stream) {
+        nextSong.prefetchedAudioStream = stream;
         nextSong.prefetchedAt = Date.now();
         console.log(`⚡ Prefetched audio stream for next track: ${nextSong.title}`);
       }
     })
     .catch((err) => {
-      console.warn(`Prefetch failed for "${nextSong.title}":`, err.message || err);
+      console.warn(`Prefetch failed for "${nextSong.title}":`, redactMediaUrls(err.message || err));
     })
     .finally(() => {
       nextSong.isPrefetching = false;
     });
 }
 
-// YouTube stream URLs carry an `expire` timestamp (usually ~6 hours out).
-// Reusing one skips a multi-second yt-dlp run, which makes seeks, volume
-// changes, Previous and prefetched songs start almost instantly.
-function hasFreshAudioUrl(song) {
-  if (!song?.prefetchedAudioUrl) return false;
-  let expiresAt = 0;
-  try {
-    expiresAt = Number(new URL(song.prefetchedAudioUrl).searchParams.get('expire')) * 1000;
-  } catch {}
-  if (!expiresAt) expiresAt = (song.prefetchedAt || 0) + 3 * 3600 * 1000;
-  return expiresAt - Date.now() > 10 * 60 * 1000;
-}
-
-async function playSong(guildId, song, seekSeconds = 0) {
+async function playSong(guildId, song, seekSeconds = 0, options = {}) {
   const serverQueue = queue.get(guildId);
-  if (!serverQueue || !song) return;
+  if (!serverQueue || serverQueue.stopped || !song) return;
+  let controller;
 
   try {
     clearIdleDisconnect(serverQueue);
@@ -1249,99 +1229,83 @@ async function playSong(guildId, song, seekSeconds = 0) {
     // dropping the song being restarted/seeked (a lone song would stop).
     serverQueue.currentResource = null;
     cleanupCurrentProcess(serverQueue);
+    controller = new AbortController();
+    serverQueue.audioAbort = controller;
+    const { signal } = controller;
+    const isCurrent = () => !signal.aborted && queue.get(guildId) === serverQueue
+      && !serverQueue.stopped && serverQueue.playToken === myToken && serverQueue.songs[0]?.id === song.id;
     serverQueue.currentSongId = song.id;
     serverQueue.advancingSongId = null;
     serverQueue.playbackStartedAt = null;
     serverQueue.pausedAt = null;
     serverQueue.seekOffset = seekSeconds;
 
-    let audioUrl = hasFreshAudioUrl(song) ? song.prefetchedAudioUrl : null;
-    if (!audioUrl) {
-      audioUrl = await getAudioUrl(await getPlayableUrl(song));
-      song.prefetchedAudioUrl = audioUrl;
-      song.prefetchedAt = Date.now();
-    }
-
-    if (!audioUrl) {
-      throw new Error('yt-dlp did not return an audio URL');
-    }
-
-    const ffmpegArgs = [
-      '-reconnect', '1',
-      '-reconnect_streamed', '1',
-      '-reconnect_on_network_error', '1',
-      '-reconnect_on_http_error', '4xx,5xx',
-      '-reconnect_delay_max', '30',
-      '-rw_timeout', '15000000',
-      // Let FFmpeg buffer incoming packets before decoding. `buffer_size` is
-      // not a valid option in the Debian FFmpeg build used by this container
-      // and makes FFmpeg exit immediately before any audio is produced.
-      '-thread_queue_size', '8192',
-    ];
-    if (seekSeconds > 0) {
-      ffmpegArgs.push('-ss', String(seekSeconds));
-    }
     const vol = serverQueue.targetVolume ?? (getDefaultVolume(guildId) / 100);
     serverQueue.targetVolume = vol;
-    // ffmpeg applies the volume and encodes Opus in its own process, and the
-    // bot only forwards ready-made packets. Encoding and scaling PCM inside the
-    // bot ran on its single thread for every server at once, which made all
-    // streams stutter when several servers played together.
-    ffmpegArgs.push(
-      '-i', audioUrl,
-      '-vn',
-      '-probesize', '65536',
-      '-analyzeduration', '1000000',
-      '-loglevel', 'warning',
-    );
-    if (Math.abs(vol - 1) > 0.001) ffmpegArgs.push('-af', `volume=${vol.toFixed(2)}`);
-    ffmpegArgs.push(
-      '-c:a', 'libopus',
-      '-b:a', '128k',
-      '-vbr', 'on',
-      '-application', 'audio',
-      '-frame_duration', '20',
-      // Forward error correction helps conceal occasional voice-packet loss.
-      '-fec', '1',
-      '-packet_loss', '10',
-      '-ar', '48000',
-      '-ac', '2',
-      '-f', 'ogg',
-      'pipe:1',
-    );
 
-    const ffmpeg = spawn('ffmpeg', ffmpegArgs, {
-      windowsHide: true,
-    });
-
-    serverQueue.currentProcess = ffmpeg;
-
-    let ffmpegError = '';
-    ffmpeg.stderr.on('data', (chunk) => {
-      ffmpegError += chunk.toString();
-    });
-
-    ffmpeg.on('close', (code) => {
-      if (code && code !== 0) {
-        console.error(`FFmpeg exited with code ${code}:`, ffmpegError.trim());
-      }
-    });
-
-    ffmpeg.on('error', (err) => {
-      console.error('Could not start FFmpeg:', err.message || err);
-    });
-
-    const resource = createAudioResource(ffmpeg.stdout, {
-      inputType: StreamType.OggOpus,
-      metadata: {
-        title: song.title,
-        playToken: myToken,
+    const failedClients = new Set(options.failedClients || []);
+    let playableUrl;
+    const { stream, playback: { ffmpeg, resource } } = await prepareAudio({
+      cachedStream: !options.recovering && hasFreshAudioStream(song) ? song.prefetchedAudioStream : null,
+      clients: getPlayerClientChains().filter((name) => !failedClients.has(name)),
+      signal,
+      extract: async (playerClient) => {
+        playableUrl ||= await getPlayableUrl(song);
+        signal.throwIfAborted();
+        return getAudioStream(playableUrl, [playerClient]);
+      },
+      start: async (candidate) => {
+        signal.throwIfAborted();
+        const process = spawnAudioProcess(candidate, seekSeconds, vol);
+        serverQueue.currentProcess = process;
+        try {
+          await waitForAudio(process, signal);
+          signal.throwIfAborted();
+          const nextResource = createAudioResource(process.stdout, {
+            inputType: StreamType.OggOpus,
+            metadata: { title: song.title, playToken: myToken },
+          });
+          serverQueue.player.play(nextResource);
+          // Ogg headers alone aren't proof of playable audio. Wait for the
+          // Discord player to decode/buffer packets before announcing success.
+          await entersState(serverQueue.player, AudioPlayerStatus.Playing,
+            AbortSignal.any([signal, AbortSignal.timeout(20_000)]));
+          signal.throwIfAborted();
+          if (process.audioError) throw process.audioError;
+          return { ffmpeg: process, resource: nextResource };
+        } catch (err) {
+          // Only stop this attempt: a rapid seek may already own a new process.
+          try { process.kill('SIGKILL'); } catch {}
+          if (serverQueue.currentProcess === process) {
+            serverQueue.currentProcess = null;
+            serverQueue.player.stop(true);
+          }
+          throw process.audioError || err;
+        }
+      },
+      onFailure: (err, playerClient, cached) => {
+        if (!cached && playerClient) failedClients.add(playerClient);
+        delete song.prefetchedAudioStream;
+        console.warn(`Audio startup failed (${cached ? 'cached' : playerClient}): ${redactMediaUrls(getTechnicalErrorMessage(err))}`);
       },
     });
+    if (!isCurrent()) return false;
+    song.prefetchedAudioStream = stream;
+    song.prefetchedAt = Date.now();
+    resource.metadata.onFailure = (err) => {
+      if (!isCurrent() || serverQueue.currentResource !== resource) return;
+      // Retire synchronously so Idle and process exit cannot retry twice.
+      serverQueue.currentResource = null;
+      failedClients.add(stream.playerClient);
+      delete song.prefetchedAudioStream;
+      const position = getElapsedSeconds(serverQueue);
+      console.warn(`Audio stream failed, trying another client: ${redactMediaUrls(getTechnicalErrorMessage(err))}`);
+      playSong(guildId, song, position, { failedClients: [...failedClients], recovering: true });
+    };
+    ffmpeg.on('exit', (code) => { if (code) resource.metadata.onFailure(ffmpeg.getAudioError()); });
     // Start the visible clock when audio is handed to Discord, not while yt-dlp
     // is still resolving the stream URL.
     serverQueue.playbackStartedAt = Date.now() - (seekSeconds * 1000);
-    serverQueue.player.play(resource);
     // Track the resource we just started. On Idle/error we compare the resource
     // that ENDED against this one (by token in its metadata): a killed/superseded
     // stream's event carries an OLD resource and is ignored — timing-independent,
@@ -1350,7 +1314,7 @@ async function playSong(guildId, song, seekSeconds = 0) {
     updatePresence(true, song.title);
     setVoiceChannelStatus(serverQueue.voiceChannel.id, `🎵 ${song.title}`);
 
-    if (seekSeconds === 0) {
+    if (seekSeconds === 0 && !options.recovering) {
       stats.totalSongsPlayed += 1;
       // New song → delete old card, post fresh one at the bottom
       await postFreshNowPlaying(serverQueue, song);
@@ -1363,12 +1327,13 @@ async function playSong(guildId, song, seekSeconds = 0) {
     maybePrefetchNextSong(serverQueue);
     return true;
   } catch (err) {
+    if (controller?.signal.aborted || queue.get(guildId) !== serverQueue || serverQueue.stopped) return false;
     const technicalReason = getTechnicalErrorMessage(err);
     const publicReason = getPublicPlayErrorMessage(technicalReason);
-    console.error('Play error:', technicalReason);
+    console.error('Play error:', redactMediaUrls(technicalReason));
     cleanupCurrentProcess(serverQueue);
     if (serverQueue.songs.length > 1) {
-      serverQueue.textChannel.send(`⚠️ I couldn't play that track. ${publicReason} Trying the next song...`);
+      sendPlaybackNotice(serverQueue, `⚠️ I couldn't play that track. ${publicReason} Trying the next song...`);
     }
     advanceQueue(guildId, serverQueue, true, publicReason);
     return false;
@@ -1389,6 +1354,9 @@ function getTechnicalErrorMessage(err) {
 function getPublicPlayErrorMessage(reason) {
   const message = reason.toLowerCase();
 
+  if (message.includes('403') || message.includes('forbidden')) {
+    return 'YouTube refused the audio download after trying the available playback clients. The host may need updated YouTube cookies or a token-provider check.';
+  }
   if (message.includes('sign in to confirm') || message.includes('not a bot')) {
     return 'YouTube blocked this request for bot verification. Please try a different video or search term.';
   }
@@ -1413,7 +1381,7 @@ function getPublicPlayErrorMessage(reason) {
     return 'No matching YouTube video was found for that Spotify track.';
   }
   if (message.includes('did not return an audio url') || message.includes('requested format is not available')) {
-    return 'I could not get a playable audio stream for that track.';
+    return 'YouTube returned no playable audio formats. The host needs an up-to-date yt-dlp/token provider and may need refreshed YouTube cookies.';
   }
 
   if (message.includes('timed out')) {
@@ -1427,9 +1395,8 @@ function getPublicPlayErrorMessage(reason) {
   return 'Please try another link or song name.';
 }
 
-async function getAudioUrl(url) {
+async function getAudioStream(url, clientChains = getPlayerClientChains()) {
   assertYouTubeUrl(url);
-  const clientChains = getPlayerClientChains();
 
   for (let i = 0; i < clientChains.length; i++) {
     try {
@@ -1437,14 +1404,15 @@ async function getAudioUrl(url) {
         ...getYtdlpBaseOptions(clientChains[i]),
         dumpSingleJson: true,
         skipDownload: true,
+        checkFormats: true,
         // Some videos expose only a combined A/V fallback until their JS
         // challenge is solved. Prefer audio-only, but accept that fallback so
         // FFmpeg can still strip the video track and play the audio.
         format: 'bestaudio/best',
       });
 
-      const audioUrl = getBestAudioUrl(info);
-      if (audioUrl) return audioUrl;
+      const stream = selectAudioStream(info, clientChains[i]);
+      if (stream) return stream;
 
       console.warn(`No audio URL from client chain "${clientChains[i]}" for ${url}`);
     } catch (err) {
@@ -1454,10 +1422,14 @@ async function getAudioUrl(url) {
       if (i < clientChains.length - 1) {
         const reason = isBlockedError ? 'blocked' : 'failed';
         const errDetail = err?.stderr?.trim() || err?.message || String(err);
-        console.warn(`Audio extraction ${reason} with "${clientChains[i]}": ${errDetail}, trying next client chain...`);
+        console.warn(`Audio extraction ${reason} with "${clientChains[i]}": ${redactMediaUrls(errDetail)}, trying next client chain...`);
         continue;
       }
 
+      // Startup tries one client per call. Keep the full stderr here so the
+      // warning explaining "no formats" isn't lost by the public error helper.
+      console.warn(`Audio extraction failed with "${clientChains[i]}":`,
+        redactMediaUrls(err?.stderr?.trim() || err?.message || String(err)));
       throw err;
     }
   }
@@ -1472,6 +1444,7 @@ function advanceQueue(guildId, serverQueue, delayNext, errorReason = null) {
   if (songId && serverQueue.advancingSongId === songId) return;
 
   serverQueue.advancingSongId = songId;
+  serverQueue.currentResource = null;
   cleanupCurrentProcess(serverQueue);
 
   // Handle loop modes
@@ -1516,13 +1489,13 @@ function advanceQueue(guildId, serverQueue, delayNext, errorReason = null) {
 
   if (errorReason) {
     console.log('⚠️ Queue empty after playback error, disconnecting soon');
-    serverQueue.textChannel.send(`⚠️ Playback stopped. ${errorReason} Disconnecting in 5 seconds.`);
+    sendPlaybackNotice(serverQueue, `⚠️ Playback stopped. ${errorReason} Disconnecting in 5 seconds.`);
     scheduleIdleDisconnect(guildId, serverQueue, ERROR_DISCONNECT_MS);
     return;
   }
 
   console.log('✅ Queue empty, disconnecting soon');
-  serverQueue.textChannel.send('✅ Queue finished! Disconnecting in 10 seconds unless you add another song.');
+  sendPlaybackNotice(serverQueue, '✅ Queue finished! Disconnecting in 10 seconds unless you add another song.');
   scheduleIdleDisconnect(guildId, serverQueue, getIdleDisconnectMs(guildId));
 }
 
@@ -1612,6 +1585,8 @@ function startPresenceRotation() {
 }
 
 function cleanupCurrentProcess(serverQueue) {
+  serverQueue?.audioAbort?.abort();
+  if (serverQueue) serverQueue.audioAbort = null;
   if (!serverQueue?.currentProcess) return;
 
   try {
@@ -1649,8 +1624,11 @@ function skip(message, serverQueue) {
 
 function skipQueue(serverQueue) {
   clearIdleDisconnect(serverQueue);
+  // Retire before stop(): its synchronous Idle event must not advance twice.
+  serverQueue.currentResource = null;
   cleanupCurrentProcess(serverQueue);
   serverQueue.player.stop();
+  advanceQueue(serverQueue.guildId, serverQueue, false);
 }
 
 function stop(message, serverQueue) {

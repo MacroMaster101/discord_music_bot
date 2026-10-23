@@ -32,7 +32,12 @@ Thumbs.db
 *.bak
 *.zip
 
-# Assistant / scratch tooling
+# Local tooling and scratch files
+.agents/
+.codex/
 .claude/
+.cursor/
 .superpowers/
+AGENTS.md
+CLAUDE.md
 docs/

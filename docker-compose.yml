@@ -3,7 +3,7 @@ services:
     build:
       context: .
       args:
-        BGUTIL_VERSION: ${BGUTIL_VERSION:-1.3.1}
+        BGUTIL_VERSION: ${BGUTIL_VERSION:-2.0.2}
     container_name: discord-music-bot
     restart: unless-stopped
     # Time to save queues on shutdown before Docker force-stops the bot.
@@ -28,7 +28,7 @@ services:
       start_period: 30s
 
   bgutil-provider:
-    image: brainicism/bgutil-ytdlp-pot-provider:${BGUTIL_VERSION:-1.3.1}
+    image: brainicism/bgutil-ytdlp-pot-provider:${BGUTIL_VERSION:-2.0.2}
     container_name: bgutil-provider
     restart: unless-stopped
     # Provider listens on 4416 inside the compose network.
