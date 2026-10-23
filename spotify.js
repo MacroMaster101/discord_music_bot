@@ -175,7 +175,13 @@ function createSpotifyClient({ clientId, clientSecret, fetchImpl = fetch, now = 
     return (data.tracks?.items || []).map((raw) => toTrack(raw)).filter(Boolean);
   }
 
-  return { configured, getTrack, getAlbum, searchTracks, getPlaylist: (id) => getPlaylistFromEmbed(id, { fetchImpl }) };
+  // Health check: reuses the cached token, so it only reaches Spotify about once an hour.
+  async function checkAuth() {
+    await getToken();
+    return true;
+  }
+
+  return { configured, checkAuth, getTrack, getAlbum, searchTracks, getPlaylist: (id) => getPlaylistFromEmbed(id, { fetchImpl }) };
 }
 
 // The Web API no longer exposes playlist contents to bots, but Spotify's public

@@ -4,7 +4,19 @@ All notable changes to J4FN Music, newest first.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-23
+
+### New
+- **Maintenance mode.** Admins can switch it on from the console with a custom notice. The bot stays online, but every command, slash command, and button replies with the notice; the bot's status turns idle and shows "Under maintenance"; the status page shows a banner. Turning it on can also stop the music that is playing, with a note posted in each room. Restarts during maintenance keep saved queues instead of resuming them.
+- **System health in the admin console.** Checks run every minute for the Discord gateway, YouTube playback, yt-dlp, FFmpeg, the PO-token provider, Spotify, the Cloudflare Tunnel, the server (memory, disk, CPU), and the environment settings. Each shows 90 days of uptime bars, and an incident log records every break with its cause and how long it lasted, alongside restarts and maintenance changes. The environment panel shows only which settings are set, never their values.
+- **Public status page** at `/status`: overall state, 90-day uptime for the Discord bot, music playback, Spotify links, and the website, plus past incidents and maintenance. Internal details stay in the admin console.
+
+### Improved
+- The public dashboard's **Now playing** and **Joined servers** sections show the first rows with a **See more** button and add search: live rooms by song or server name, servers by name. Search text and expanded rows persist across the automatic refresh.
+- Songs start faster: the bot remembers which YouTube client last started playback and tries it first, instead of repeating a failing client before every song. Other clients remain automatic fallbacks.
+
 ### Security
+- Admin changes (settings, controls, maintenance) are refused when sent from another website, so a page cannot ride on a signed-in Cloudflare Access session.
 - Resolved CodeQL findings: dashboard JSON escapes HTML characters, per-server settings can no longer write to object prototypes, the admin token parser avoids slow regex backtracking, client IPs are stripped of line breaks before logging, the yt-dlp cookies file is written to a private temporary directory, and YouTube links must use an exact YouTube host.
 
 ### Maintenance
@@ -58,6 +70,8 @@ All notable changes to J4FN Music, newest first.
 
 First release: YouTube playback with search, playlists, queue controls, lyrics, and interactive buttons; a public status page; and a protected admin console.
 
+[Unreleased]: https://github.com/MacroMaster101/discord_music_bot/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/MacroMaster101/discord_music_bot/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/MacroMaster101/discord_music_bot/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/MacroMaster101/discord_music_bot/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/MacroMaster101/discord_music_bot/compare/v1.0.0...v1.1.0

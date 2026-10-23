@@ -1,13 +1,13 @@
 {
   "name": "discord-music-bot",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Discord music bot with public dashboard and admin console",
   "main": "index.js",
   "license": "MIT",
   "scripts": {
     "start": "node index.js",
-    "check": "node --check index.js && node --check audio.js && node --check playback-notifications.js && node --check server.js && node --check settings.js && node --check spotify.js && node --check resume.js && node --check slash-commands.js && node --check scripts/check-branch-flow.js && node --check web/public.js && node --check web/admin.js",
-    "test": "node test/server.test.js && node test/spotify.test.js && node test/resume.test.js && node test/slash-commands.test.js && node test/audio.test.js && node test/branch-flow.test.js"
+    "check": "node --check index.js && node --check audio.js && node --check playback-notifications.js && node --check server.js && node --check health.js && node --check settings.js && node --check spotify.js && node --check resume.js && node --check slash-commands.js && node --check scripts/check-branch-flow.js && node --check web/public.js && node --check web/admin.js && node --check web/status.js",
+    "test": "node test/server.test.js && node test/spotify.test.js && node test/resume.test.js && node test/slash-commands.test.js && node test/audio.test.js && node test/branch-flow.test.js && node test/health.test.js"
   },
   "engines": {
     "node": ">=22.12.0"

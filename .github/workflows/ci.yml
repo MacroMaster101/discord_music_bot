@@ -48,3 +48,30 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  # After a release, bring dev up to the commit main just verified. dev requires
+  # the test and branch-policy checks, so this runs only once they have passed
+  # on that exact commit; a fast-forward then satisfies the dev ruleset.
+  sync-dev:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: sync-main-into-dev
+      cancel-in-progress: false
+    steps:
+      - name: Check out dev
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: dev
+          fetch-depth: 0
+      - name: Fast-forward dev to the verified main commit
+        run: |
+          git fetch origin dev
+          git merge --ff-only "$GITHUB_SHA" || {
+            echo "dev has commits that are not on main yet. Merge main into dev manually (admins bypass the dev checks), then promote again."
+            exit 1
+          }
+          git push origin HEAD:dev

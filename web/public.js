@@ -40,6 +40,15 @@
     $('signal-status').textContent = online ? 'Online' : state;
   }
 
+  function setMaintenance(maintenance) {
+    const enabled = Boolean(maintenance?.enabled);
+    $('maintenance-banner').hidden = !enabled;
+    if (!enabled) return;
+    $('maintenance-message').textContent = maintenance.message || 'Music commands are paused for now.';
+    $('hero-state').textContent = 'Online · under maintenance';
+    $('signal-status').textContent = 'Maintenance';
+  }
+
   function setIdentity(bot) {
     if (!bot) return;
     $('brand-name').textContent = bot.name || 'Discord Music';
@@ -54,15 +63,53 @@
     $('command-prefix').textContent = safePrefix;
   }
 
-  function renderTracks(tracks) {
-    const container = $('public-tracks');
-    progressState.clear();
-    if (!tracks?.length) {
-      container.innerHTML = '<div class="empty-state"><span>♬</span><strong>The stage is quiet</strong><p>Active tracks will appear here automatically.</p></div>';
-      return;
-    }
+  const normalize = (value) => String(value ?? '').normalize('NFKC').toLocaleLowerCase();
 
-    container.innerHTML = tracks.map((track) => {
+  // Search and "See more" for a list that is re-rendered on every status refresh.
+  // The controls sit outside the container, so the query and the number of
+  // expanded rows survive each refresh.
+  function createListView({ key, pageSize, noun, matches, renderItems, emptyHtml, onRender = () => {} }) {
+    const container = $(`public-${key}`);
+    const search = $(`${key}-search`);
+    const searchWrap = search.closest('.list-search');
+    const more = $(`${key}-more`);
+    const moreButton = $(`${key}-more-button`);
+    const shown = $(`${key}-shown`);
+    let items = [];
+    let limit = pageSize;
+    let matchCount = 0;
+
+    const render = () => {
+      const rawQuery = search.value.trim();
+      const query = normalize(rawQuery);
+      const filtered = query ? items.filter((item) => matches(item, query)) : items;
+      matchCount = filtered.length;
+      onRender();
+      searchWrap.hidden = items.length <= pageSize && !rawQuery;
+      if (!items.length) container.innerHTML = emptyHtml;
+      else if (!filtered.length) {
+        container.innerHTML = `<div class="empty-state"><span>⌕</span><strong>No ${noun} match “${escapeHtml(rawQuery)}”</strong><p>Try another name.</p></div>`;
+      } else container.innerHTML = renderItems(filtered.slice(0, limit));
+      more.hidden = filtered.length <= pageSize;
+      const visible = Math.min(limit, filtered.length);
+      shown.textContent = `Showing ${formatCount(visible)} of ${formatCount(filtered.length)} ${noun}`;
+      moreButton.textContent = visible < filtered.length ? 'See more' : 'Show less';
+    };
+
+    search.addEventListener('input', () => { limit = pageSize; render(); });
+    moreButton.addEventListener('click', () => {
+      if (limit < matchCount) limit += pageSize;
+      else {
+        limit = pageSize;
+        container.closest('.section').scrollIntoView({ block: 'start' });
+      }
+      render();
+    });
+    return { update(next) { items = next || []; render(); } };
+  }
+
+  function renderTrackCards(tracks) {
+    return tracks.map((track) => {
       const image = safeUrl(track.thumbnail);
       const link = safeUrl(track.url);
       const duration = Number(track.durationSeconds || 0);
@@ -98,6 +145,17 @@
     }).join('');
   }
 
+  const tracksView = createListView({
+    key: 'tracks',
+    pageSize: 4,
+    noun: 'live rooms',
+    matches: (track, query) => normalize(track.title).includes(query) || normalize(track.serverName).includes(query),
+    renderItems: renderTrackCards,
+    emptyHtml: '<div class="empty-state"><span>♬</span><strong>The stage is quiet</strong><p>Active tracks will appear here automatically.</p></div>',
+    // Progress ticks only for cards that are on screen.
+    onRender: () => progressState.clear(),
+  });
+
   async function refreshStatus() {
     try {
       const response = await fetch('/api/public/status', { cache: 'no-store' });
@@ -105,6 +163,7 @@
       const data = await response.json();
       failures = 0;
       setConnectionState(data.status);
+      setMaintenance(data.maintenance);
       setIdentity(data.bot);
       setCommandPrefix(data.prefix);
       $('metric-uptime').textContent = formatDuration(data.uptimeMs);
@@ -115,8 +174,9 @@
       $('metric-ping').textContent = data.ping >= 0 ? `${Math.round(data.ping)} ms` : '—';
       $('last-updated').textContent = `Updated ${new Date(data.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
       $('bug-open').hidden = !data.bugReports;
-      renderTracks(data.activeTracks);
-      renderServers(data.servers);
+      tracksView.update(data.activeTracks);
+      $('servers-count').textContent = `${formatCount(data.servers?.length || 0)} servers`;
+      serversView.update(data.servers);
     } catch {
       failures += 1;
       if (failures >= 3) setConnectionState('offline');
@@ -124,17 +184,8 @@
     }
   }
 
-  function renderServers(servers) {
-    const container = $('public-servers');
-    if (!container) return;
-    const countEl = $('servers-count');
-    if (countEl) countEl.textContent = `${formatCount(servers?.length || 0)} servers`;
-    if (!servers?.length) {
-      container.innerHTML = '<div class="empty-state"><span>🏰</span><strong>No servers joined yet</strong><p>Invite the bot to your Discord server to see it featured here.</p></div>';
-      return;
-    }
-
-    container.innerHTML = servers.map((server) => {
+  function renderServerCards(servers) {
+    return servers.map((server) => {
       const image = safeUrl(server.iconURL);
       const name = escapeHtml(server.name || 'Discord Server');
       const initials = (server.name || 'DS').split(/\s+/).filter(Boolean).map((w) => w[0]).join('').slice(0, 3).toUpperCase();
@@ -158,6 +209,15 @@
       </article>`;
     }).join('');
   }
+
+  const serversView = createListView({
+    key: 'servers',
+    pageSize: 8,
+    noun: 'servers',
+    matches: (server, query) => normalize(server.name).includes(query),
+    renderItems: renderServerCards,
+    emptyHtml: '<div class="empty-state"><span>🏰</span><strong>No servers joined yet</strong><p>Invite the bot to your Discord server to see it featured here.</p></div>',
+  });
 
   function chartGeometry(values) {
     if (!values.length) return { points: '', area: '' };

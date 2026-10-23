@@ -9,11 +9,13 @@ How to run your own copy of the bot and its web dashboard. If you just want to u
 | Part | What it does |
 | :--- | :--- |
 | `index.js` | The bot: commands, buttons, queue, playback, Spotify links, resume after restart |
-| `server.js` | Web dashboard: public status page, admin console, APIs |
+| `server.js` | Web dashboard: public dashboard, `/status` page, admin console, APIs |
+| `health.js` | Health checks, 90-day uptime history, incident and event log (`data/health.json`) |
+| `audio.js` | FFmpeg process and audio stream startup |
 | `spotify.js` | Spotify link parsing, Web API client, playlist reader, YouTube matching |
 | `resume.js` | Saves queues on shutdown and restores them on the next start |
 | `slash-commands.js` | Slash command definitions (registered on startup only when they change) |
-| `settings.js` | Global and per-server settings (JSON in `data/`) |
+| `settings.js` | Global and per-server settings, including maintenance mode (JSON in `data/`) |
 | `web/` | Dashboard pages, scripts, and styles |
 | `test/` | Automated tests (`npm test`) |
 
@@ -26,6 +28,7 @@ The Docker Compose stack runs **two containers**: the bot and `bgutil-provider`,
 | PO tokens | `bgutil-ytdlp-pot-provider` sidecar |
 | Search | `yt-search` |
 | Dashboard | Node.js `http`, no framework |
+| Tunnel health | `cloudflared --metrics` readiness endpoint, reachable only inside the Compose network |
 
 ---
 
@@ -40,11 +43,13 @@ Copy `.env.example` to `.env` and fill it in. `.env` is never committed.
 | `PORT` | optional | Dashboard port (default `8080`). |
 | `DASHBOARD_BIND_ADDRESS` | optional | Host address for the dashboard port; use `127.0.0.1` behind Cloudflare Tunnel. |
 | `COMPOSE_PROFILES` / `TUNNEL_TOKEN` | tunnel only | `COMPOSE_PROFILES=tunnel` starts `cloudflared` with the tunnel's raw token. |
+| `TUNNEL_METRICS_URL` | optional | Where the health check reads cloudflared's readiness (default `http://cloudflared:20241/ready`). |
 | `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD` | recommended | Your Zero Trust team domain (`myteam.cloudflareaccess.com`) and the Access application's **AUD tag**. When set, admin sign-ins are verified by JWT signature, audience, issuer, and expiry. When unset, Access headers are trusted and a warning is logged. |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | optional | Spotify track and album links. Create an app at the [Spotify developer dashboard](https://developer.spotify.com/dashboard) (Web API only); since February 2026 the app owner needs Spotify Premium. Playlist links work without these. |
 | `PRESENCE_STREAM_URL` | optional | Link behind the purple **Streaming** status while music plays. Must be a Twitch channel or YouTube video URL (default `https://www.twitch.tv/discord`). Never a song link: the status is visible in every server. |
 | `FORMSPREE_FORM_ID` | optional | Turns on the public **Report a bug** button. Only the ID after `/f/` in the [Formspree](https://formspree.io) endpoint. Turn reCAPTCHA off and leave domain restrictions empty in the form's settings, because the server sends the reports. |
 | `BGUTIL_BASE_URL` | optional | PO-token provider URL (default `http://bgutil-provider:4416`). |
+| `BGUTIL_VERSION` | optional | PO-token provider and plugin release, kept in step (default `2.0.2`). |
 | `YTDLP_COOKIES_PATH` / `YTDLP_COOKIES_BASE64` | optional | YouTube cookies for login-restricted videos (see below). |
 | `YTDLP_MAX_CONCURRENT` | optional | How many YouTube lookups may run at once (default `2`). Raise it on a server with more CPU. |
 | `VM_MEMORY_MB` | optional | Memory ceiling shown in the admin console (default `2048`). |
@@ -58,6 +63,8 @@ docker compose up -d --force-recreate bot
 ```
 
 Deploys already recreate the containers.
+
+The admin console's **System health → Environment config** panel lists which of these keys are set (never their values) and flags a missing token or an `ADMIN_TOKEN` shorter than 24 characters.
 
 ---
 
@@ -103,21 +110,65 @@ When Docker stops the bot (a deploy, `docker compose restart`, a server reboot),
 7. Put the application's **AUD tag** and your team domain in `.env` as `CF_ACCESS_AUD` and `CF_ACCESS_TEAM_DOMAIN`.
 8. Add the tunnel token as the GitHub Actions secret `CLOUDFLARE_TUNNEL_TOKEN` and deploy.
 
+Each deploy writes `CLOUDFLARE_TUNNEL_TOKEN` into the server's `.env` as `TUNNEL_TOKEN`, so a stale or mistyped secret replaces a working token. If `docker compose logs cloudflared` shows **Invalid tunnel secret** or **Provided Tunnel token is not valid**, copy the token again from the tunnel's page (it is a single base64 string of roughly 180 to 250 characters, with no spaces or quotes) and update the secret:
+
+```bash
+gh secret set CLOUDFLARE_TUNNEL_TOKEN --repo <owner>/discord_music_bot
+```
+
+You can check a token before saving it: `echo "$TOKEN" | base64 -d` must print JSON with `a`, `t`, and `s` fields. The **Cloudflare Tunnel** row in System health turns red within a minute when cloudflared loses its connection.
+
 Cloudflare path wildcards don't include the parent path, which is why both `admin` and `admin/*` are listed. Public HTTPS ends at Cloudflare; the hop to `http://bot:8080` stays inside the Docker network. Once the hostname works, remove any firewall rule that exposes port `8080`.
 
 ### Dashboard routes
 
 | Route | Who | What |
 | :--- | :--- | :--- |
-| `/` | Everyone | Status page: bot health, what's playing, activity charts, servers, commands |
-| `/api/public/status`, `/api/public/history` | Everyone | Data for the status page (no channel, member, or queue details) |
+| `/` | Everyone | Public dashboard: bot health, what's playing, activity charts, servers, commands |
+| `/status` | Everyone | Status page: overall state, 90-day uptime, past incidents and maintenance |
+| `/api/public/status`, `/api/public/history`, `/api/public/health` | Everyone | Data for those pages (no channel, member, queue, host, or configuration details) |
 | `/api/public/bug-report` | Everyone (POST) | Bug reports relayed to Formspree; same-site JSON only, spam-filtered, 3 per visitor per 10 minutes |
 | `/healthz` | Monitors | Bot readiness |
 | `/invite` | Everyone | Discord install link with the bot's required permissions |
-| `/admin/`, `/api/admin/*` | Cloudflare Access admins | Admin console: controls, queues, logs, settings, bot status text |
+| `/admin/`, `/api/admin/*` | Cloudflare Access admins | Admin console: controls, queues, logs, settings, bot status text, maintenance, system health |
 | `/login`, `/console/`, `/console/api/*` | `ADMIN_TOKEN` holders | Same console for token sign-in; failed attempts lock out an address for 15 minutes after 6 tries |
 
-The privacy of the public data is covered by automated tests.
+The privacy of the public data is covered by automated tests. Admin requests that change something (`PUT`, `POST`, `DELETE`) must come from the dashboard's own origin.
+
+---
+
+## Maintenance mode
+
+Use it while you fix something that breaks playback, such as a YouTube change, expired cookies, or a host problem. In the admin console, open **Maintenance mode**, write the notice people should see, switch it on, and choose whether to stop the music that is playing now.
+
+While it is on:
+
+- The bot stays online. Every `!` command, `/` command, and button replies with your notice.
+- The bot's status turns idle with "Under maintenance".
+- The public dashboard and `/status` show a banner with the notice.
+- The admin console keeps working, including room controls.
+- A restart does not resume saved queues; they stay on disk until the first restart after maintenance ends.
+
+Switch it off from the same card. Every change appears in the System health event log.
+
+---
+
+## Health checks and status page
+
+The bot checks its parts every minute and keeps 90 days of results in `data/health.json`:
+
+| Check | Down or degraded when |
+| :--- | :--- |
+| Discord gateway | Not connected, or ping above 1 second |
+| YouTube playback | Songs fail to start for host reasons (403, bot check, no formats, timeouts, FFmpeg) in the last 15 minutes; private or removed videos don't count |
+| yt-dlp, FFmpeg | The binary is missing or can't report its version |
+| PO-token provider | `bgutil-provider` doesn't answer `/ping` |
+| Spotify API | Credentials are set but sign-in fails |
+| Cloudflare Tunnel | cloudflared reports it is not connected; skipped when `TUNNEL_TOKEN` is empty |
+| Server (EC2) | Disk or memory is low, CPU load is high, or `data/` is not writable |
+| Environment config | A required key is missing (down) or a recommended one is missing or weak (degraded) |
+
+**System health** in the admin console shows each check's current result and uptime bars, an incident log with when each break started, what caused it, and how long it lasted, and an event log of restarts and maintenance changes. **Run checks now** re-checks immediately. `/status` shows the same history for the Discord bot, music playback, Spotify links, and the website, without internal details.
 
 ---
 
@@ -131,7 +182,7 @@ The privacy of the public data is covered by automated tests.
 - `CLOUDFLARE_TUNNEL_TOKEN`: the tunnel token
 - `YTDLP_COOKIES_BASE64` (optional): base64 YouTube cookies
 
-`main` is protected: changes arrive through pull requests from `dev`, and the `test` check must pass.
+Branches flow `feature → dev → main`. Feature, fix, and dependency PRs target `dev`; a `dev → main` pull request releases, and only pushes to `main` deploy. Both branches require the `branch-policy` and `test` checks. After `main` passes, the `sync-dev` job fast-forwards `dev` to it. See [CONTRIBUTING.md](CONTRIBUTING.md#branches).
 
 ---
 

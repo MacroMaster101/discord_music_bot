@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#e51f38">
+  <title>J4FN Music · Status</title>
+  <meta name="description" content="Live status and 90-day uptime for the J4FN Music Discord bot.">
+  <link rel="icon" href="/assets/favicon.png" type="image/png" sizes="256x256">
+  <link rel="apple-touch-icon" href="/assets/logo.png">
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/status.js" defer></script>
+</head>
+<body class="public-page status-page">
+  <div class="ambient ambient-one"></div>
+  <div class="site-shell">
+    <nav class="topbar" aria-label="Main navigation">
+      <a class="brand" href="/" aria-label="Home">
+        <span class="brand-mark"><img src="/assets/favicon.png" alt=""></span>
+        <span><strong>J4FN Music</strong><small>System status</small></span>
+      </a>
+      <div class="nav-links">
+        <a href="/">← Dashboard</a>
+        <a class="button button-quiet" href="/invite" target="_blank" rel="noopener noreferrer">Add bot ↗</a>
+      </div>
+    </nav>
+
+    <main class="status-main">
+      <div class="health-overall status-banner" id="status-overall" data-state="pending" role="status">
+        <strong id="status-overall-text">Checking systems…</strong>
+        <small id="status-checked"></small>
+      </div>
+      <div class="maintenance-banner" id="status-maintenance" hidden>
+        <span class="maintenance-icon" aria-hidden="true">🛠️</span>
+        <div><strong>Under maintenance</strong><p id="status-maintenance-message"></p></div>
+      </div>
+
+      <section class="section">
+        <div class="section-heading"><div><span class="kicker">UPTIME</span><h2>Components</h2></div><span class="updated">Uptime over the past <span class="days-long">90</span><span class="days-short">30</span> days</span></div>
+        <div id="status-components" class="health-components">
+          <div class="empty-state"><span>◌</span><strong>Loading status</strong><p>Fetching the latest checks.</p></div>
+        </div>
+        <div class="uptime-legend" aria-hidden="true"><span><i class="bar l0"></i>No issues</span><span><i class="bar l2"></i>Degraded</span><span><i class="bar l4"></i>Outage</span><span><i class="bar none"></i>No data</span></div>
+      </section>
+
+      <section class="section">
+        <div class="section-heading"><div><span class="kicker">HISTORY</span><h2>Past incidents</h2></div></div>
+        <div id="status-incidents" class="health-log"><p class="muted">No incidents recorded.</p></div>
+      </section>
+    </main>
+
+    <footer><span class="footer-brand"><img src="/assets/favicon.png" alt="">J4FN MUSIC / STATUS</span><span>Checked every minute. Times are shown in your time zone.</span></footer>
+  </div>
+</body>
+</html>
