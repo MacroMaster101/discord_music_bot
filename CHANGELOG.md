@@ -4,6 +4,9 @@ All notable changes to J4FN Music, newest first.
 
 ## [Unreleased]
 
+### Maintenance
+- Standardized feature and dependency updates through `dev` before production PRs to `main`, with branch checks, weekly Dependabot updates, and automatic synchronization after production merges.
+
 ### Fixed
 - YouTube playback now preserves stream headers, uses yt-dlp's checked format, and tries another client when FFmpeg cannot start the audio. Now Playing appears only after the audio player starts.
 - Failed cached streams are refreshed; stopping, skipping, or seeking cancels older playback attempts.
