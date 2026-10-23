@@ -16,6 +16,10 @@ updates:
     groups:
       npm-minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      # @discordjs/voice's prism-media accepts only opusscript ^0.0.8.
+      - dependency-name: opusscript
+        versions: ['>=0.1.0']
 
   - package-ecosystem: github-actions
     directory: /
@@ -43,3 +47,8 @@ updates:
     open-pull-requests-limit: 3
     commit-message:
       prefix: chore(docker)
+    ignore:
+      # Stay on the Node LTS line that CI tests (22). Major runtime moves are
+      # made by hand together with the CI node-version.
+      - dependency-name: node
+        update-types: ['version-update:semver-major']
