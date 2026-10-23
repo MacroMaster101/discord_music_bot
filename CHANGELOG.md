@@ -5,6 +5,7 @@ All notable changes to J4FN Music, newest first.
 ## [Unreleased]
 
 ### Improved
+- The public dashboard's **Now playing** and **Joined servers** sections show the first rows with a **See more** button and add search: live rooms by song or server name, servers by name. Search text and expanded rows persist across the automatic refresh.
 - Songs start faster: the bot remembers which YouTube client last started playback and tries it first, instead of repeating a failing client before every song. Other clients remain automatic fallbacks.
 
 ### Security

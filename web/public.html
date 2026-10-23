@@ -76,11 +76,15 @@
       <section class="section" id="live">
         <div class="section-heading">
           <div><span class="kicker">LIVE ROOMS</span><h2>Now playing</h2></div>
-          <span class="updated" id="last-updated">Waiting for the first update</span>
+          <div class="list-tools">
+            <label class="list-search" hidden><span class="sr-only">Search by song or server</span><input id="tracks-search" type="search" placeholder="Search song or server" autocomplete="off" maxlength="80"></label>
+            <span class="updated" id="last-updated">Waiting for the first update</span>
+          </div>
         </div>
         <div id="public-tracks" class="track-grid">
           <div class="empty-state"><span>♬</span><strong>The stage is quiet</strong><p>Songs will show up here as soon as someone presses play.</p></div>
         </div>
+        <div class="list-more" id="tracks-more" hidden><span id="tracks-shown"></span><button class="button button-quiet" id="tracks-more-button" type="button">See more</button></div>
       </section>
 
       <section class="section">
@@ -103,11 +107,15 @@
       <section class="section" id="servers">
         <div class="section-heading">
           <div><span class="kicker">COMMUNITIES</span><h2>Joined servers</h2></div>
-          <span class="updated" id="servers-count">0 servers</span>
+          <div class="list-tools">
+            <label class="list-search" hidden><span class="sr-only">Search servers</span><input id="servers-search" type="search" placeholder="Search servers" autocomplete="off" maxlength="80"></label>
+            <span class="updated" id="servers-count">0 servers</span>
+          </div>
         </div>
         <div id="public-servers" class="server-grid">
           <div class="empty-state"><span>🏰</span><strong>No servers joined yet</strong><p>Invite the bot to your Discord server to see it featured here.</p></div>
         </div>
+        <div class="list-more" id="servers-more" hidden><span id="servers-shown"></span><button class="button button-quiet" id="servers-more-button" type="button">See more</button></div>
       </section>
 
       <section class="section" id="commands">
