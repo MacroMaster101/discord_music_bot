@@ -2,8 +2,9 @@ require('dotenv').config();
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { startDashboardServer } = require('./server');
+const { getLastEdgeRequestAt, startDashboardServer } = require('./server');
 const settings = require('./settings');
+const { createDefaultChecks, createHealthMonitor, envReport, publicHealth } = require('./health');
 const {
   SpotifyError, createSpotifyClient, isSpotifyLink, parseSpotifyLink, pickBestYouTubeMatch, youTubeQueryFor,
 } = require('./spotify');
@@ -262,8 +263,42 @@ const client = new Client({
 const queue = new Map();
 const inflightPlay = new Set(); // guildIds currently bootstrapping a queue
 
+// Song starts and host-side failures, read by the YouTube playback health check.
+const playbackHealth = { lastSuccessAt: 0, lastFailureAt: 0, lastFailureReason: '', playerClient: null, failures: [] };
+const HOST_FAILURE_RE = /403|forbidden|sign in to confirm|not a bot|did not return an audio url|requested format is not available|timed out|ffmpeg/i;
+
+function recordPlaybackFailure(technicalReason, publicReason) {
+  // Private, removed, or age-restricted videos are the song's problem, not the bot's.
+  if (!HOST_FAILURE_RE.test(technicalReason)) return;
+  const now = Date.now();
+  playbackHealth.lastFailureAt = now;
+  playbackHealth.lastFailureReason = publicReason;
+  playbackHealth.failures = [...playbackHealth.failures.filter((at) => now - at < 60 * 60 * 1000), now].slice(-50);
+}
+
+const healthMonitor = createHealthMonitor({
+  file: path.join(settings.DATA_DIR, 'health.json'),
+  checks: createDefaultChecks({
+    client,
+    getPlaybackHealth: () => playbackHealth,
+    spotify,
+    bgutilBaseUrl: process.env.BGUTIL_BASE_URL || 'http://bgutil-provider:4416',
+    ytdlpPath: fs.existsSync(YTDLP_SYSTEM_PATH) ? YTDLP_SYSTEM_PATH : youtubedlPkg.constants.YOUTUBE_DL_PATH,
+    tunnelReadyUrl: process.env.TUNNEL_METRICS_URL || 'http://cloudflared:20241/ready',
+    getLastEdgeRequestAt,
+    dataDir: settings.DATA_DIR,
+    memoryLimitMb: Number(process.env.VM_MEMORY_MB || 2048),
+  }),
+});
+
+function getHealth() {
+  return { ...healthMonitor.snapshot(), env: envReport(), maintenance: getMaintenanceConfig() };
+}
+
 client.once('clientReady', async () => {
   console.log(`🎵 ${client.user.tag} is online!`);
+  healthMonitor.recordEvent('restart', `Bot started as ${client.user.tag} (v${require('./package.json').version})`);
+  healthMonitor.start();
   updatePresence();
   startPresenceRotation();
 
@@ -274,6 +309,9 @@ client.once('clientReady', async () => {
       pauseResumeCore, skipCore, previousCore, stopCore, restartCore, volumeCore,
       loopCore, shuffleCore, removeCore, moveCore, clearCore, addCore,
       getPresenceConfig, setPresenceCore,
+      getMaintenanceConfig, setMaintenanceCore,
+      getHealth, runHealthChecks: () => healthMonitor.runChecks(),
+      getPublicHealth: () => publicHealth(healthMonitor.snapshot(), getMaintenanceConfig()),
     });
   } catch (err) {
     console.error('Could not start Web Dashboard Server:', err);
@@ -388,6 +426,11 @@ client.on('messageCreate', async (message) => {
     'playlist','pl','lyrics','ly'
   ]);
 
+  if (KNOWN.has(command) && isMaintenance()) {
+    message.reply(maintenanceNotice()).catch(() => {});
+    return;
+  }
+
   try {
     if (KNOWN.has(command)) {
       logCommand({
@@ -460,6 +503,10 @@ async function handleSlashCommand(interaction) {
   const options = Object.fromEntries(interaction.options.data.map((o) => [o.name, o.value]));
   const mapped = toPrefixCommand(interaction.commandName, options);
   if (!mapped) return;
+  if (isMaintenance()) {
+    await interaction.reply({ content: maintenanceNotice(), ephemeral: true }).catch(() => {});
+    return;
+  }
 
   await interaction.deferReply();
   const message = slashAsMessage(interaction);
@@ -491,6 +538,9 @@ client.on('interactionCreate', async (interaction) => {
     return handleSlashCommand(interaction).catch((err) => console.error('Slash command failed:', err));
   }
   if (!interaction.isButton() && !interaction.isStringSelectMenu()) return;
+  if (isMaintenance()) {
+    return interaction.reply({ content: maintenanceNotice(), ephemeral: true }).catch(() => {});
+  }
 
   // Queue picker — select menu produces this; action buttons follow it
   if (interaction.isStringSelectMenu() && interaction.customId === 'queue_pick') {
@@ -1306,6 +1356,8 @@ async function playSong(guildId, song, seekSeconds = 0, options = {}) {
     });
     if (!isCurrent()) return false;
     rememberWorkingClient(stream.playerClient);
+    playbackHealth.lastSuccessAt = Date.now();
+    playbackHealth.playerClient = stream.playerClient || playbackHealth.playerClient;
     song.prefetchedAudioStream = stream;
     song.prefetchedAt = Date.now();
     resource.metadata.onFailure = (err) => {
@@ -1347,6 +1399,7 @@ async function playSong(guildId, song, seekSeconds = 0, options = {}) {
     const technicalReason = getTechnicalErrorMessage(err);
     const publicReason = getPublicPlayErrorMessage(technicalReason);
     console.error('Play error:', redactMediaUrls(technicalReason));
+    recordPlaybackFailure(technicalReason, publicReason);
     cleanupCurrentProcess(serverQueue);
     if (serverQueue.songs.length > 1) {
       sendPlaybackNotice(serverQueue, `⚠️ I couldn't play that track. ${publicReason} Trying the next song...`);
@@ -1558,6 +1611,14 @@ function updatePresence(inVoice, songTitle) {
 
 function applyPresence() {
   if (!client.user) return;
+
+  if (isMaintenance()) {
+    client.user.setPresence({
+      activities: [{ name: 'Maintenance', type: ActivityType.Custom, state: '🛠️ Under maintenance · back soon' }],
+      status: 'idle',
+    });
+    return;
+  }
 
   const presence = getPresenceConfig();
   if (presence.mode === 'custom') {
@@ -1795,6 +1856,52 @@ function setPresenceCore(patch = {}) {
   presenceIndex = 0;
   applyPresence();
   return { ok: true, ...getPresenceConfig() };
+}
+
+// Maintenance keeps the bot online (presence, dashboard, admin console) while every
+// Discord command, slash command, and button answers with the maintenance notice.
+function isMaintenance() {
+  return settings.get(null, 'maintenanceMode') === true;
+}
+
+function maintenanceNotice() {
+  return `🛠️ **Under maintenance.** ${settings.get(null, 'maintenanceMessage')}`;
+}
+
+function getMaintenanceConfig() {
+  return { enabled: isMaintenance(), message: settings.get(null, 'maintenanceMessage') };
+}
+
+// stopPlayback ends every active room when maintenance starts, posting the notice
+// in each room's text channel so listeners know why the music stopped.
+function setMaintenanceCore(patch = {}) {
+  if (patch.enabled !== undefined && typeof patch.enabled !== 'boolean') {
+    return { ok: false, error: 'enabled must be true or false.' };
+  }
+  if (patch.message !== undefined) {
+    const text = String(patch.message).trim();
+    if (text.length < 1 || text.length > 200) return { ok: false, error: 'The message must be 1 to 200 characters.' };
+  }
+  const wasEnabled = isMaintenance();
+  settings.setGlobal({ maintenanceMode: patch.enabled, maintenanceMessage: patch.message });
+
+  let stopped = 0;
+  if (isMaintenance() && patch.stopPlayback === true) {
+    for (const [guildId, serverQueue] of [...queue.entries()]) {
+      if (serverQueue.stopped) continue;
+      serverQueue.textChannel?.send(maintenanceNotice()).catch(() => {});
+      stopQueue(guildId, serverQueue);
+      stopped += 1;
+    }
+  }
+  if (wasEnabled !== isMaintenance()) {
+    const summary = `Maintenance mode ${isMaintenance() ? 'turned on' : 'turned off'}${stopped ? `, stopped ${stopped} room(s)` : ''}`;
+    console.log(`🛠️ ${summary}`);
+    healthMonitor.recordEvent('maintenance', summary);
+  }
+  presenceIndex = 0;
+  applyPresence();
+  return { ok: true, ...getMaintenanceConfig(), stopped };
 }
 
 function pausePlayer(serverQueue) {
@@ -2614,6 +2721,11 @@ process.once('SIGTERM', () => shutdown('SIGTERM'));
 process.once('SIGINT', () => shutdown('SIGINT'));
 
 async function resumeSavedQueues() {
+  // Leave the saved queues on disk; they are picked up by the first restart after maintenance.
+  if (isMaintenance()) {
+    console.log('🛠️ Maintenance mode is on: not resuming saved queues');
+    return;
+  }
   const snapshots = loadSnapshots(RESUME_FILE);
   for (const snapshot of snapshots) {
     try {

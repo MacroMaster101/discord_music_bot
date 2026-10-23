@@ -60,7 +60,18 @@ const hooks = {
     presenceConfig = { ...presenceConfig, ...patch };
     return { ok: true, ...presenceConfig };
   },
+  getMaintenanceConfig: () => ({ ...maintenanceConfig }),
+  setMaintenanceCore: (patch) => {
+    if (patch.enabled !== undefined && typeof patch.enabled !== 'boolean') return { ok: false, error: 'enabled must be true or false.' };
+    maintenanceConfig = { enabled: patch.enabled ?? maintenanceConfig.enabled, message: patch.message ?? maintenanceConfig.message };
+    return { ok: true, ...maintenanceConfig, stopped: patch.stopPlayback ? 1 : 0 };
+  },
+  getHealth: () => ({ overall: 'operational', components: [], incidents: [], events: [], env: [{ key: 'ADMIN_TOKEN', set: true }] }),
+  runHealthChecks: async () => { healthRuns += 1; },
+  getPublicHealth: () => ({ overall: 'operational', components: [{ id: 'discord', name: 'Discord bot', status: 'operational' }], incidents: [] }),
 };
+let maintenanceConfig = { enabled: false, message: 'Back soon.' };
+let healthRuns = 0;
 
 test('public payload contains useful aggregates and public server showcase without private identifiers', () => {
   const payload = buildPublicPayload(client, queue, hooks);
@@ -308,4 +319,58 @@ test('admin control routes the previous action to the bot', async () => {
   });
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { ok: true, title: 'Earlier Song' });
+});
+
+test('maintenance mode is admin-only, validated, and shown on the public status', async () => {
+  const anonymous = await fetch(`${baseUrl}/api/admin/maintenance`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true }),
+  });
+  assert.equal(anonymous.status, 401);
+  assert.equal(maintenanceConfig.enabled, false);
+
+  const headers = { Authorization: 'Bearer test-admin-token', 'Content-Type': 'application/json' };
+  const invalid = await fetch(`${baseUrl}/api/admin/maintenance`, { method: 'PUT', headers, body: JSON.stringify({ enabled: 'yes' }) });
+  assert.equal(invalid.status, 400);
+
+  const on = await fetch(`${baseUrl}/api/admin/maintenance`, {
+    method: 'PUT', headers, body: JSON.stringify({ enabled: true, message: 'Upgrading <servers>.', stopPlayback: true }),
+  });
+  assert.equal(on.status, 200);
+  assert.deepEqual(await on.json(), { ok: true, enabled: true, message: 'Upgrading <servers>.', stopped: 1 });
+
+  const publicStatus = await (await fetch(`${baseUrl}/api/public/status`)).json();
+  assert.deepEqual(publicStatus.maintenance, { enabled: true, message: 'Upgrading <servers>.' });
+
+  await fetch(`${baseUrl}/api/admin/maintenance`, { method: 'PUT', headers, body: JSON.stringify({ enabled: false }) });
+  assert.deepEqual((await (await fetch(`${baseUrl}/api/public/status`)).json()).maintenance, { enabled: false, message: '' });
+});
+
+test('admin writes from another site are refused even with valid credentials', async () => {
+  const response = await fetch(`${baseUrl}/api/admin/maintenance`, {
+    method: 'PUT',
+    headers: { Authorization: 'Bearer test-admin-token', 'Content-Type': 'application/json', Origin: 'https://evil.example' },
+    body: JSON.stringify({ enabled: true }),
+  });
+  assert.equal(response.status, 403);
+  assert.equal(maintenanceConfig.enabled, false);
+});
+
+test('health is admin-only and the public status page gets the sanitized view', async () => {
+  assert.equal((await fetch(`${baseUrl}/api/admin/health`)).status, 401);
+  const headers = { Authorization: 'Bearer test-admin-token' };
+  const health = await fetch(`${baseUrl}/api/admin/health`, { headers });
+  assert.equal(health.status, 200);
+  assert.equal((await health.json()).env[0].key, 'ADMIN_TOKEN');
+
+  const before = healthRuns;
+  const run = await fetch(`${baseUrl}/api/admin/health/check`, { method: 'POST', headers });
+  assert.equal(run.status, 200);
+  assert.equal(healthRuns, before + 1);
+
+  const page = await fetch(`${baseUrl}/status`);
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /Past incidents/);
+  const publicHealth = await (await fetch(`${baseUrl}/api/public/health`)).json();
+  assert.equal(publicHealth.components[0].name, 'Discord bot');
+  assert.equal(publicHealth.env, undefined);
 });

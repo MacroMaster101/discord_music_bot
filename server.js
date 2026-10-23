@@ -35,10 +35,16 @@ const DISCORD_INVITE_PERMISSIONS = [
   48n, // Set Voice Channel Status
 ].reduce((permissions, bit) => permissions | (1n << bit), 0n);
 
+// When a request last arrived through Cloudflare (it adds CF-Ray). The health
+// check uses it as a fallback signal that the tunnel is carrying traffic.
+let lastEdgeRequestAt = 0;
+function getLastEdgeRequestAt() { return lastEdgeRequestAt; }
+
 const STATIC_FILES = new Map([
   ['/assets/app.css', ['app.css', 'text/css; charset=utf-8']],
   ['/assets/public.js', ['public.js', 'application/javascript; charset=utf-8']],
   ['/assets/admin.js', ['admin.js', 'application/javascript; charset=utf-8']],
+  ['/assets/status.js', ['status.js', 'application/javascript; charset=utf-8']],
   ['/assets/login.js', ['login.js', 'application/javascript; charset=utf-8']],
   ['/assets/login.css', ['login.css', 'text/css; charset=utf-8']],
   ['/assets/logo.png', ['logo.png', 'image/png']],
@@ -356,6 +362,13 @@ function publicGuildList(client, queue) {
   }
 }
 
+function publicMaintenance(hooks) {
+  const maintenance = hooks.getMaintenanceConfig?.();
+  return maintenance?.enabled
+    ? { enabled: true, message: String(maintenance.message || '') }
+    : { enabled: false, message: '' };
+}
+
 function buildPublicPayload(client, queue, hooks = {}) {
   const online = isClientOnline(client);
   const botStats = hooks.getBotStats?.() || { totalSongsPlayed: 0 };
@@ -373,6 +386,7 @@ function buildPublicPayload(client, queue, hooks = {}) {
     activeStreams: entries.length,
     totalSongsPlayed: Number(botStats.totalSongsPlayed || 0),
     bugReports: Boolean(bugReportFormId(hooks)),
+    maintenance: publicMaintenance(hooks),
     servers: publicGuildList(client, queue),
     activeTracks: entries.map(([guildId, serverQueue], index) => {
       const song = serverQueue.songs[0];
@@ -504,6 +518,7 @@ function createDashboardServer(client, queue, hooks = {}) {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url || '/', 'http://dashboard.local');
     let pathname = url.pathname;
+    if (req.headers['cf-ray']) lastEdgeRequestAt = Date.now();
 
     // /console/api/* is the ungated mirror of the Access-gated /api/admin/*. Cloudflare
     // Access covers /admin and /api/admin, so a token-authenticated operator cannot
@@ -557,6 +572,13 @@ function createDashboardServer(client, queue, hooks = {}) {
       if (req.method === 'GET' && pathname === '/api/public/status') {
         return sendJson(res, 200, buildPublicPayload(client, queue, hooks), true);
       }
+      if (req.method === 'GET' && (pathname === '/status' || pathname === '/status/')) {
+        return sendFile(res, 'status.html', 'text/html; charset=utf-8');
+      }
+      if (req.method === 'GET' && pathname === '/api/public/health') {
+        if (!hooks.getPublicHealth) return sendJson(res, 503, { error: 'Status history is unavailable.' }, true);
+        return sendJson(res, 200, hooks.getPublicHealth(), true);
+      }
       if (req.method === 'GET' && pathname === '/api/public/history') {
         return sendJson(res, 200, { intervalMs: HISTORY_INTERVAL_MS, points: history }, true);
       }
@@ -589,6 +611,11 @@ function createDashboardServer(client, queue, hooks = {}) {
 
       if (pathname.startsWith('/api/admin/')) {
         if (!(await requireAdmin(req, res))) return;
+        // Cloudflare Access adds its identity header to any request that carries the
+        // session cookie, so a cross-site page must not be able to send admin writes.
+        if (req.method !== 'GET' && !isSameOriginPost(req)) {
+          return sendJson(res, 403, { error: 'Cross-site requests are not allowed.' });
+        }
 
         if (req.method === 'GET' && pathname === '/api/admin/stats') {
           return sendJson(res, 200, {
@@ -608,6 +635,26 @@ function createDashboardServer(client, queue, hooks = {}) {
           if (req.method === 'PUT') {
             const result = hooks.setPresenceCore?.(await readJson(req));
             if (!result) return sendJson(res, 503, { error: 'Presence controls are unavailable.' });
+            return sendJson(res, result.ok ? 200 : 400, result);
+          }
+          return sendJson(res, 405, { error: 'Method not allowed.' });
+        }
+        if (pathname === '/api/admin/health' || pathname === '/api/admin/health/check') {
+          if (!hooks.getHealth) return sendJson(res, 503, { error: 'Health checks are unavailable.' });
+          if (req.method === 'POST' && pathname === '/api/admin/health/check') {
+            await hooks.runHealthChecks?.();
+            return sendJson(res, 200, hooks.getHealth());
+          }
+          if (req.method === 'GET' && pathname === '/api/admin/health') return sendJson(res, 200, hooks.getHealth());
+          return sendJson(res, 405, { error: 'Method not allowed.' });
+        }
+        if (pathname === '/api/admin/maintenance') {
+          if (!hooks.getMaintenanceConfig || !hooks.setMaintenanceCore) {
+            return sendJson(res, 503, { error: 'Maintenance controls are unavailable.' });
+          }
+          if (req.method === 'GET') return sendJson(res, 200, hooks.getMaintenanceConfig());
+          if (req.method === 'PUT') {
+            const result = hooks.setMaintenanceCore(await readJson(req));
             return sendJson(res, result.ok ? 200 : 400, result);
           }
           return sendJson(res, 405, { error: 'Method not allowed.' });
@@ -679,6 +726,7 @@ module.exports = {
   buildPublicPayload,
   createAccessVerifier,
   createDashboardServer,
+  getLastEdgeRequestAt,
   isAdminRequest,
   startDashboardServer,
 };

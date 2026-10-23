@@ -53,6 +53,8 @@ services:
         condition: service_healthy
     # The route is managed in Cloudflare: music.example.com -> http://bot:8080.
     # TUNNEL_TOKEN stays in the server .env file and is never committed.
-    command: tunnel --no-autoupdate run
+    # Metrics stay inside the compose network; the bot's health check reads
+    # http://cloudflared:20241/ready to see whether the tunnel is connected.
+    command: tunnel --no-autoupdate --metrics 0.0.0.0:20241 run
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}

@@ -37,11 +37,16 @@
         <a href="#live">Now playing</a>
         <a href="#servers">Communities</a>
         <a href="#commands">Commands</a>
+        <a href="/status">System status</a>
         <a class="button button-quiet" href="/invite" target="_blank" rel="noopener noreferrer">Add bot ↗</a>
       </div>
     </nav>
 
     <main>
+      <div class="maintenance-banner" id="maintenance-banner" role="status" hidden>
+        <span class="maintenance-icon" aria-hidden="true">🛠️</span>
+        <div><strong>Under maintenance</strong><p id="maintenance-message">Music commands are paused for now.</p></div>
+      </div>
       <section class="hero" id="status">
         <div class="hero-copy">
           <a class="announce" href="#spotify">

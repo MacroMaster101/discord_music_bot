@@ -2,7 +2,7 @@
   'use strict';
 
   const $ = (id) => document.getElementById(id);
-  const state = { scope: 'global', guildId: '', tracks: new Map(), refreshTimer: null };
+  const state = { scope: 'global', guildId: '', tracks: new Map(), refreshTimer: null, healthTimer: null, maintenance: null };
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;',
   })[char]);
@@ -69,10 +69,19 @@
     chip.className = `status-chip ${locked ? 'waiting' : 'online'}`;
     chip.querySelector('span').textContent = locked ? 'LOCKED' : 'AUTHORIZED';
     $('unlock-message').textContent = message;
-    if (locked && state.refreshTimer) {
+    if (locked) {
       clearInterval(state.refreshTimer);
+      clearInterval(state.healthTimer);
       state.refreshTimer = null;
+      state.healthTimer = null;
     }
+  }
+
+  function startTimers() {
+    clearInterval(state.refreshTimer);
+    clearInterval(state.healthTimer);
+    state.refreshTimer = setInterval(refreshAdmin, 6000);
+    state.healthTimer = setInterval(loadHealth, 60000);
   }
 
   function renderTracks(tracks) {
@@ -123,10 +132,120 @@
     container.innerHTML = entries.map((entry) => `<div class="log-row"><code>!${escapeHtml(entry.command)}</code><span>${escapeHtml(entry.userName)} · ${escapeHtml(entry.guildName)}</span><time>${timeAgo(entry.timestamp)} ago</time></div>`).join('');
   }
 
+  function setMaintenanceState(message, error = false) {
+    const element = $('maintenance-state');
+    element.textContent = message;
+    element.className = `saved-state ${error ? 'error' : 'ok'}`;
+  }
+
+  // The button names what Apply will do; "Stop music" only matters when turning it on.
+  function updateMaintenanceFields() {
+    const wanted = $('maintenance-enabled').checked;
+    $('maintenance-stop-row').hidden = !(wanted && !state.maintenance);
+    $('maintenance-save').textContent = wanted === state.maintenance
+      ? 'Save notice'
+      : (wanted ? 'Turn on maintenance' : 'Turn off maintenance');
+  }
+
+  function renderMaintenance(maintenance) {
+    state.maintenance = Boolean(maintenance?.enabled);
+    $('maintenance-card').classList.toggle('is-active', state.maintenance);
+    $('maintenance-pill').textContent = state.maintenance ? 'On' : 'Off';
+    $('maintenance-enabled').checked = state.maintenance;
+    $('maintenance-message').value = maintenance?.message || '';
+    updateMaintenanceFields();
+  }
+
+  async function loadMaintenance() {
+    try {
+      renderMaintenance(await api('/api/admin/maintenance'));
+      setMaintenanceState(state.maintenance ? 'Maintenance on' : 'Ready');
+    } catch (error) { setMaintenanceState(error.message, true); }
+  }
+
+  const HEALTH_LABELS = {
+    operational: 'Operational', degraded: 'Degraded', down: 'Down', unconfigured: 'Not configured', pending: 'Checking',
+  };
+  const OVERALL_LABELS = {
+    operational: 'All systems operational',
+    degraded: 'Degraded performance',
+    partial: 'Partial outage',
+    major: 'Major outage: the bot is offline',
+    pending: 'Checking systems…',
+  };
+  const formatDateTime = (timestamp) => new Date(timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const formatSpan = (ms) => {
+    const minutes = Math.max(1, Math.round(ms / 60000));
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    return hours < 48 ? `${hours}h ${minutes % 60}m` : `${Math.floor(hours / 24)}d ${hours % 24}h`;
+  };
+  // Same scale as public status pages: green at 99.9 % and above, red for a bad day.
+  const barLevel = (day) => {
+    if (day.uptime == null) return 'none';
+    if (day.uptime >= 99.9) return 'l0';
+    if (day.uptime >= 99) return 'l1';
+    if (day.uptime >= 95) return 'l2';
+    if (day.uptime >= 80) return 'l3';
+    return 'l4';
+  };
+
+  function renderHealth(data) {
+    const overall = data.overall || 'pending';
+    $('health-overall').dataset.state = overall;
+    $('health-overall-text').textContent = data.maintenance?.enabled ? `${OVERALL_LABELS[overall]} · maintenance mode on` : OVERALL_LABELS[overall];
+    const broken = (data.components || []).filter((c) => c.status === 'down' || c.status === 'degraded');
+    $('health-overall-note').textContent = broken.length ? broken.map((c) => `${c.name}: ${HEALTH_LABELS[c.status].toLowerCase()}`).join(' · ') : '';
+    $('health-checked').textContent = data.checkedAt ? `Checked ${new Date(data.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'Not checked yet';
+
+    $('health-components').innerHTML = (data.components || []).map((component) => {
+      const bars = component.days.map((day) => {
+        const label = day.uptime == null ? `${day.date}: no data` : `${day.date}: ${day.uptime}% uptime${day.status !== 'operational' ? ` (${day.status})` : ''}`;
+        return `<i class="bar ${barLevel(day)}" title="${escapeHtml(label)}"></i>`;
+      }).join('');
+      const uptime = component.uptime == null ? 'No data yet' : `${component.uptime}% uptime`;
+      return `<article class="health-row" data-status="${escapeHtml(component.status)}">
+        <div class="health-row-head"><div><strong>${escapeHtml(component.name)}</strong><small>${escapeHtml(component.group)}</small></div><span class="health-status">${escapeHtml(HEALTH_LABELS[component.status] || component.status)}</span></div>
+        <p class="health-detail">${escapeHtml(component.detail)}</p>
+        <div class="uptime-bars" aria-hidden="true">${bars}</div>
+        <div class="uptime-foot"><span><span class="days-long">90 days ago</span><span class="days-short">30 days ago</span></span><span>${escapeHtml(uptime)}</span><span>Today</span></div>
+      </article>`;
+    }).join('');
+
+    const incidents = data.incidents || [];
+    $('health-incidents').innerHTML = incidents.length ? incidents.map((incident) => {
+      const end = incident.resolvedAt ? `resolved after ${formatSpan(incident.resolvedAt - incident.startedAt)}` : `ongoing for ${formatSpan(Date.now() - incident.startedAt)}`;
+      return `<div class="log-entry" data-status="${incident.resolvedAt ? 'resolved' : escapeHtml(incident.status)}">
+        <div><strong>${escapeHtml(incident.name)}</strong> <span class="log-tag">${escapeHtml(incident.resolvedAt ? 'Resolved' : HEALTH_LABELS[incident.status] || incident.status)}</span></div>
+        <p>${escapeHtml(incident.detail || 'No details')}</p>
+        <time>${escapeHtml(formatDateTime(incident.startedAt))} · ${escapeHtml(end)}</time>
+      </div>`;
+    }).join('') : '<p class="muted">No incidents recorded. Every check has passed.</p>';
+
+    const events = data.events || [];
+    $('health-events').innerHTML = events.length ? events.map((event) => `<div class="log-entry" data-status="event">
+        <div><span class="log-tag">${escapeHtml(event.kind)}</span></div>
+        <p>${escapeHtml(event.message)}</p>
+        <time>${escapeHtml(formatDateTime(event.at))}</time>
+      </div>`).join('') : '<p class="muted">No events recorded.</p>';
+
+    $('health-env').innerHTML = (data.env || []).map((entry) => {
+      const state = entry.set ? (entry.warning ? 'warn' : 'ok') : (entry.level === 'optional' ? 'off' : 'missing');
+      const label = entry.set ? (entry.warning || (entry.via ? `Set (as ${entry.via})` : 'Set')) : 'Not set';
+      return `<div class="env-row" data-state="${state}"><code>${escapeHtml(entry.key)}</code><span>${escapeHtml(entry.purpose)} · ${escapeHtml(entry.level)}</span><strong>${escapeHtml(label)}</strong></div>`;
+    }).join('');
+  }
+
+  async function loadHealth() {
+    try { renderHealth(await api('/api/admin/health')); } catch (error) { $('health-overall-text').textContent = error.message; }
+  }
+
   async function refreshAdmin() {
     try {
       const data = await api('/api/admin/stats');
-      $('a-status').textContent = data.status === 'online' ? 'Online' : 'Connecting';
+      $('a-status').textContent = data.maintenance?.enabled ? 'Maintenance' : data.status === 'online' ? 'Online' : 'Connecting';
+      // Pick up a change made from another console without overwriting a notice being typed.
+      if (state.maintenance !== null && Boolean(data.maintenance?.enabled) !== state.maintenance) loadMaintenance();
       $('a-guilds').textContent = Number(data.guilds || 0).toLocaleString();
       $('a-audience').textContent = `${Number(data.audience || 0).toLocaleString()} audience`;
       $('a-streams').textContent = Number(data.activeStreams || 0).toLocaleString();
@@ -224,8 +343,8 @@
       await Promise.all([refreshAdmin(), loadGuilds()]);
       if (!token()) return;
       setLocked(false);
-      await Promise.all([loadSettings(), loadPresence()]);
-      state.refreshTimer = setInterval(refreshAdmin, 6000);
+      await Promise.all([loadSettings(), loadPresence(), loadMaintenance(), loadHealth()]);
+      startTimers();
     } catch (error) {
       clearToken();
       setLocked(true, error.message);
@@ -247,6 +366,38 @@
   $('refresh-admin').addEventListener('click', refreshAdmin);
   $('setting-volume').addEventListener('input', () => { $('volume-output').textContent = `${$('setting-volume').value}%`; });
   $('presence-mode').addEventListener('change', updatePresenceFields);
+  $('maintenance-enabled').addEventListener('change', updateMaintenanceFields);
+  $('health-run').addEventListener('click', async () => {
+    const button = $('health-run');
+    button.disabled = true;
+    button.textContent = 'Checking…';
+    try {
+      renderHealth(await api('/api/admin/health/check', { method: 'POST' }));
+      toast('Health checks finished');
+    } catch (error) { toast(error.message, 'error'); }
+    button.disabled = false;
+    button.textContent = 'Run checks now';
+  });
+  $('maintenance-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const enabled = $('maintenance-enabled').checked;
+    const stopPlayback = enabled && !state.maintenance && $('maintenance-stop').checked;
+    if (stopPlayback && state.tracks.size
+      && !window.confirm(`Stop music in ${state.tracks.size} active room(s) and turn on maintenance?`)) return;
+    setMaintenanceState('Applying…');
+    try {
+      const result = await api('/api/admin/maintenance', {
+        method: 'PUT',
+        body: JSON.stringify({ enabled, message: $('maintenance-message').value.trim(), stopPlayback }),
+      });
+      renderMaintenance(result);
+      setMaintenanceState(result.enabled ? 'Maintenance on' : 'Maintenance off');
+      toast(result.enabled
+        ? `Maintenance on${result.stopped ? ` · stopped ${result.stopped} room(s)` : ''}`
+        : 'Maintenance off: commands work again');
+      refreshAdmin();
+    } catch (error) { setMaintenanceState(error.message, true); }
+  });
   $('presence-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     setPresenceState('Applying…');
@@ -362,7 +513,7 @@
   if (token()) $('admin-token').value = token();
   Promise.all([refreshAdmin(), loadGuilds()]).then(async () => {
     setLocked(false);
-    await Promise.all([loadSettings(), loadPresence()]);
-    state.refreshTimer = setInterval(refreshAdmin, 6000);
+    await Promise.all([loadSettings(), loadPresence(), loadMaintenance(), loadHealth()]);
+    startTimers();
   }).catch(() => setLocked(true, 'Choose Cloudflare Access or enter the admin token to continue.'));
 })();

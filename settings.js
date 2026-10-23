@@ -17,7 +17,13 @@ const DEFAULTS = {
   presenceStatus: 'online',
   presenceActivityType: 'competing',
   presenceActivityText: '🏆 The Ultimate DJ Battle',
+  maintenanceMode: false,
+  maintenanceMessage: 'Music is paused for maintenance. We will be back soon.',
 };
+
+// Bot-wide switches: a server override must not turn them on or off for one server,
+// and resetting the global settings must not end maintenance by accident.
+const GLOBAL_ONLY_KEYS = ['maintenanceMode', 'maintenanceMessage'];
 
 let state = {
   global: { ...DEFAULTS },
@@ -90,8 +96,9 @@ function setGlobal(patch) {
 function setGuild(guildId, patch) {
   // Explicit nulls mean "clear this override" — apply before sanitize so they don't get coerced
   // Only known setting keys can be cleared.
-  const clears = Object.keys(DEFAULTS).filter((k) => patch[k] === null);
+  const clears = Object.keys(DEFAULTS).filter((k) => patch[k] === null && !GLOBAL_ONLY_KEYS.includes(k));
   const clean = sanitize(patch);
+  for (const k of GLOBAL_ONLY_KEYS) delete clean[k];
   const current = { ...(state.guilds.get(guildId) || {}), ...clean };
   for (const k of clears) delete current[k];
   if (Object.keys(current).length === 0) {
@@ -109,7 +116,8 @@ function resetGuild(guildId) {
 }
 
 function resetGlobal() {
-  state.global = { ...DEFAULTS };
+  const kept = Object.fromEntries(GLOBAL_ONLY_KEYS.map((k) => [k, state.global[k]]));
+  state.global = { ...DEFAULTS, ...kept };
   scheduleSave();
   return state.global;
 }
@@ -147,6 +155,13 @@ function sanitize(patch) {
   if (patch.presenceActivityText !== undefined) {
     const text = String(patch.presenceActivityText).trim();
     if (text.length >= 1 && text.length <= 128) out.presenceActivityText = text;
+  }
+  if (patch.maintenanceMode !== undefined) {
+    out.maintenanceMode = patch.maintenanceMode === true;
+  }
+  if (patch.maintenanceMessage !== undefined) {
+    const text = String(patch.maintenanceMessage).trim();
+    if (text.length >= 1 && text.length <= 200) out.maintenanceMessage = text;
   }
   return out;
 }

@@ -40,6 +40,15 @@
     $('signal-status').textContent = online ? 'Online' : state;
   }
 
+  function setMaintenance(maintenance) {
+    const enabled = Boolean(maintenance?.enabled);
+    $('maintenance-banner').hidden = !enabled;
+    if (!enabled) return;
+    $('maintenance-message').textContent = maintenance.message || 'Music commands are paused for now.';
+    $('hero-state').textContent = 'Online · under maintenance';
+    $('signal-status').textContent = 'Maintenance';
+  }
+
   function setIdentity(bot) {
     if (!bot) return;
     $('brand-name').textContent = bot.name || 'Discord Music';
@@ -154,6 +163,7 @@
       const data = await response.json();
       failures = 0;
       setConnectionState(data.status);
+      setMaintenance(data.maintenance);
       setIdentity(data.bot);
       setCommandPrefix(data.prefix);
       $('metric-uptime').textContent = formatDuration(data.uptimeMs);
