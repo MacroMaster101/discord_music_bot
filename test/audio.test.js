@@ -250,6 +250,8 @@ function playbackHarness(options = {}) {
     clearIdleDisconnect() {}, getDefaultVolume: () => 100,
     getPlayerClientChains: () => options.clients || ['mweb', 'web_safari'],
     rememberWorkingClient: (playerClient) => remembered.push(playerClient),
+    playbackHealth: { lastSuccessAt: 0, playerClient: null },
+    recordPlaybackFailure() {},
     getPlayableUrl: async () => song.url,
     getAudioStream: async (url, [playerClient]) => {
       extracted.push(playerClient);

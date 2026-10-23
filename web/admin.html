@@ -39,12 +39,34 @@
       </section>
 
       <div id="admin-content" class="admin-content is-locked" aria-hidden="true">
+        <section class="section maintenance-card" id="maintenance-card">
+          <div class="section-heading"><div><span class="kicker">SERVICE STATE</span><h2>Maintenance mode</h2></div><span class="maintenance-pill" id="maintenance-pill">Off</span></div>
+          <form id="maintenance-form" class="settings-form">
+            <label class="toggle-row"><span><strong>Maintenance mode</strong><small>The bot stays online, but every command, slash command, and button replies with the notice below. The status page shows a banner.</small></span><input id="maintenance-enabled" type="checkbox"><i></i></label>
+            <div class="field"><label for="maintenance-message">Notice shown in Discord and on the status page</label><input id="maintenance-message" maxlength="200" required><small>Up to 200 characters.</small></div>
+            <label class="toggle-row" id="maintenance-stop-row" hidden><span><strong>Stop music that is playing now</strong><small>Ends every active room and posts the notice in its text channel.</small></span><input id="maintenance-stop" type="checkbox" checked><i></i></label>
+            <div class="form-actions"><span class="saved-state" id="maintenance-state">Ready</span><button class="button button-primary" type="submit" id="maintenance-save">Save notice</button></div>
+          </form>
+        </section>
+
         <section class="metric-grid admin-metrics">
           <article class="metric"><span>Status</span><strong id="a-status">—</strong><small>Discord gateway</small></article>
           <article class="metric"><span>Servers</span><strong id="a-guilds">—</strong><small id="a-audience">— audience</small></article>
           <article class="metric"><span>Live rooms</span><strong id="a-streams">—</strong><small>active sessions</small></article>
           <article class="metric"><span>Memory</span><strong id="a-memory">—</strong><small>resident process</small></article>
           <article class="metric"><span>Gateway</span><strong id="a-ping">—</strong><small>Discord latency</small></article>
+        </section>
+
+        <section class="section health-section" id="health">
+          <div class="section-heading"><div><span class="kicker">HEALTH</span><h2>System health</h2></div><div class="list-tools"><span class="updated" id="health-checked">Not checked yet</span><button class="button button-quiet" id="health-run" type="button">Run checks now</button></div></div>
+          <div class="health-overall" id="health-overall" data-state="pending" role="status"><strong id="health-overall-text">Checking systems…</strong><small id="health-overall-note"></small></div>
+          <p class="health-caption">Uptime over the past <span class="days-long">90</span><span class="days-short">30</span> days. Checks run every minute; grey days have no data.</p>
+          <div id="health-components" class="health-components"></div>
+          <div class="health-logs">
+            <div><h3>Incident log</h3><div id="health-incidents" class="health-log"><p class="muted">No incidents recorded.</p></div></div>
+            <div><h3>Events</h3><div id="health-events" class="health-log"><p class="muted">No events recorded.</p></div></div>
+          </div>
+          <details class="env-report"><summary>Environment config <small>names only, values are never shown</small></summary><div id="health-env" class="env-grid"></div></details>
         </section>
 
         <section class="section admin-section">
