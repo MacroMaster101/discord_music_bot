@@ -18,6 +18,7 @@ test('an outage opens one incident, escalates, and records how long it lasted', 
   let clock = Date.UTC(2026, 9, 23, 10);
   const monitor = createHealthMonitor({
     now: () => clock,
+    startupGraceMs: 0,
     logger: quietLogger,
     checks: [fakeCheck('tunnel', [
       { status: 'operational' },
@@ -149,4 +150,27 @@ test('the public view hides internal components, details, and error text', () =>
   assert.deepEqual(view.incidents, [{ name: 'Music playback', status: 'down', startedAt: 4, resolvedAt: 9 }]);
   assert.deepEqual(view.maintenanceLog, [{ at: 3, message: 'Maintenance mode turned on' }]);
   assert.doesNotMatch(JSON.stringify(view), /disk low|googlevideo|secret|EC2|restart/);
+});
+
+test('failures while the stack is still starting are shown but not logged', async () => {
+  let clock = Date.UTC(2026, 9, 23, 11, 20);
+  const monitor = createHealthMonitor({
+    now: () => clock,
+    logger: quietLogger,
+    checks: [fakeCheck('tunnel', [{ status: 'degraded', detail: 'cloudflared metrics unreachable' }, { status: 'operational' }, { status: 'down', detail: 'gone' }])],
+  });
+  await monitor.runChecks();
+  let snapshot = monitor.snapshot();
+  assert.equal(snapshot.components[0].status, 'degraded');
+  assert.equal(snapshot.incidents.length, 0);
+  assert.equal(snapshot.components[0].uptime, null);
+
+  clock += 60_000;
+  await monitor.runChecks();
+  clock += 2 * 60_000;
+  await monitor.runChecks();
+  snapshot = monitor.snapshot();
+  assert.equal(snapshot.incidents.length, 1);
+  assert.equal(snapshot.incidents[0].detail, 'gone');
+  assert.equal(snapshot.components[0].uptime, 50);
 });
