@@ -5,6 +5,7 @@ All notable changes to J4FN Music, newest first.
 ## [Unreleased]
 
 ### Fixed
+- Added a separate yt-dlp default-client fallback so playable combined WEB formats remain available when forced YouTube clients receive API 403 errors.
 - YouTube playback now preserves stream headers, uses yt-dlp's checked format, and tries another client when FFmpeg cannot start the audio. Now Playing appears only after the audio player starts.
 - Failed cached streams are refreshed; stopping, skipping, or seeking cancels older playback attempts.
 - Updated the matching PO-token plugin and Docker sidecar to 2.0.2, including upstream fixes for some YouTube 403 failures.
