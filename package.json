@@ -26,6 +26,9 @@
   "overrides": {
     "cheerio": {
       "undici": "^7.29.1"
+    },
+    "redstar": {
+      "minimatch": "^3.1.5"
     }
   }
 }

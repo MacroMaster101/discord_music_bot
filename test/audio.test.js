@@ -433,6 +433,25 @@ test('the loading sound fills a slow startup, then the song replaces it before i
   h.context.cleanupCurrentProcess(h.serverQueue);
 });
 
+test('a client that fails before reaching the player keeps the loading sound going', async () => {
+  let release;
+  const h = playbackHarness({
+    loadingSound: true, failFirst: true,
+    extract: async (playerClient) => {
+      if (playerClient === 'web_safari') await new Promise((resolve) => { release = resolve; });
+      return { url: `https://media.example/${playerClient}`, playerClient };
+    },
+  });
+  const task = h.context.playSong('guild', h.song);
+  await waitFor(() => release && h.player.state.resource?.metadata?.loading);
+  assert.equal(h.loadingStreams.length, 1, 'the first loop kept playing through the failed client');
+  assert.equal(h.loadingStreams[0].destroyed, false);
+  release();
+  assert.equal(await task, true);
+  assert.equal(h.loadingStreams[0].destroyed, true);
+  h.context.cleanupCurrentProcess(h.serverQueue);
+});
+
 test('a startup that fails on every client leaves no loading sound behind', async () => {
   const h = playbackHarness({ loadingSound: true, failAll: true });
   assert.equal(await h.context.playSong('guild', h.song), false);
@@ -468,6 +487,13 @@ test('a song that is already being prefetched waits for it instead of extracting
   assert.deepEqual(h.extracted, [], 'the prefetched stream was used');
   assert.equal(h.processes.length, 1);
   h.context.cleanupCurrentProcess(h.serverQueue);
+
+  // A client that just failed in the prefetch is not tried again.
+  const failedPrefetch = playbackHarness();
+  failedPrefetch.song.prefetchFailedClients = ['mweb'];
+  assert.equal(await failedPrefetch.context.playSong('guild', failedPrefetch.song), true);
+  assert.deepEqual(failedPrefetch.extracted, ['web_safari']);
+  failedPrefetch.context.cleanupCurrentProcess(failedPrefetch.serverQueue);
 
   // Skipping while waiting on the prefetch cancels cleanly.
   const skipped = playbackHarness();

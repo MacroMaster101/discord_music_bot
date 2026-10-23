@@ -1319,16 +1319,19 @@ function moveSongNext(serverQueue, songId) {
 function prefetchSong(song, { background = false } = {}) {
   if (!song || hasFreshAudioStream(song) || song.prefetchPromise) return;
   const priority = { background };
+  const clients = background ? undefined : getPlayerClientChains().slice(0, 1);
   song.prefetchPriority = priority;
   song.prefetchPromise = getPlayableUrl(song)
-    .then((url) => getAudioStream(url, background ? undefined : getPlayerClientChains().slice(0, 1), priority))
+    .then((url) => getAudioStream(url, clients, priority))
     .then((stream) => {
-      if (!stream) return;
+      if (!stream) throw new Error('yt-dlp did not return an audio URL');
       song.prefetchedAudioStream = stream;
       song.prefetchedAt = Date.now();
       if (background) console.log(`⚡ Prefetched audio stream for next track: ${song.title}`);
     })
     .catch((err) => {
+      // playSong skips a client that just failed for this song.
+      if (clients) song.prefetchFailedClients = clients;
       console.warn(`Prefetch failed for "${song.title}":`, redactMediaUrls(err.message || err));
     })
     .finally(() => {
@@ -1432,6 +1435,8 @@ async function playSong(guildId, song, seekSeconds = 0, options = {}) {
       promoteYtdlp(song.prefetchPriority);
       await untilAborted(song.prefetchPromise, signal);
     }
+    for (const name of song.prefetchFailedClients || []) failedClients.add(name);
+    delete song.prefetchFailedClients;
     let playableUrl;
     const { stream, playback: { ffmpeg, resource } } = await prepareAudio({
       cachedStream: !options.recovering && hasFreshAudioStream(song) ? song.prefetchedAudioStream : null,
@@ -1468,7 +1473,8 @@ async function playSong(guildId, song, seekSeconds = 0, options = {}) {
           try { process.kill('SIGKILL'); } catch {}
           if (serverQueue.currentProcess === process) {
             serverQueue.currentProcess = null;
-            serverQueue.player.stop(true);
+            // A failure before the song reached the player leaves the loading sound playing.
+            if (!isLoadingSoundPlaying(serverQueue)) serverQueue.player.stop(true);
           }
           throw process.audioError || err;
         }
