@@ -1,4 +1,4 @@
-FROM node:22-slim
+FROM node:25-slim
 
 # Install runtime tools for Discord voice playback and yt-dlp.
 RUN apt-get update && apt-get install -y \
